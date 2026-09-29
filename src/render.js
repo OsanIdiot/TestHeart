@@ -113,7 +113,6 @@ export class Renderer {
     ctx.beginPath(); ctx.ellipse(x, G + 1, 16 - Math.min(8, f.y / 10), 3, 0, 0, Math.PI * 2); ctx.fill();
 
     const white = f.flash > 0 && f.flash % 4 < 2;
-    if (m && m.limb === 'body') return this.rollBall(f, x, base, white);
 
     const lying = f.state === 'down' || (f.state === 'ko' && f.y <= 0);
     let w = BODY.w, h, top;
@@ -185,11 +184,25 @@ export class Renderer {
     else if (mf < end) k = 1;
     else k = 0.25 + 0.55 * Math.max(0, 1 - (mf - end) / Math.max(1, m.total - end));
 
+    if (m.limb === 'spin') return this.spinPose(f, x, base, h);
     const kind = m.limb === 'kick' || m.limb === 'claw' || m.limb === 'grab' ? m.limb : 'punch';
     const ox = x + f.facing * (kind === 'kick' ? 4 : 6);
     const oy = kind === 'kick' ? base - Math.min(16, h * 0.3) : top + h * 0.4;
     const tx = x + f.facing * (hb.x + hb.w), ty = base - (hb.y + hb.h / 2);
     return { kind, k, ox, oy, px: ox + (tx - ox) * k, py: oy + (ty - oy) * k, active: k === 1 };
+  }
+
+  spinPose(f, x, base, h) {
+    const m = f.move, mf = f.moveFrame;
+    const first = m.hits[0].start, last = m.hits[m.hits.length - 1].end;
+    const hipY = base - Math.min(22, h * 0.4);
+    if (mf < first || mf >= last) { // 준비/마무리: 다리를 살짝 들고 있음
+      return { kind: 'kick', k: 0.5, ox: x, oy: hipY, px: x + f.facing * 12, py: hipY - 4, active: false };
+    }
+    const a = (mf - first) * 0.9; // 빙글
+    const reach = 26;
+    return { kind: 'kick', k: 1, spin: true, ox: x, oy: hipY,
+      px: x + Math.cos(a) * reach * f.facing, py: hipY - 2 + Math.sin(a) * 4, active: Math.cos(a) > 0 };
   }
 
   limb(f, p) {
@@ -228,6 +241,13 @@ export class Renderer {
         }
       }
     }
+    if (p.spin) { // 회전 궤적
+      const ctx2 = this.ctx;
+      ctx2.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx2.lineWidth = 2;
+      ctx2.beginPath(); ctx2.ellipse(p.ox, p.oy, 30, 7, 0, 0, Math.PI * 2); ctx2.stroke();
+      return;
+    }
     if (p.active && p.kind !== 'claw' && p.kind !== 'grab') { // 빠르게 휘두르는 느낌
       ctx.strokeStyle = 'rgba(255,255,255,0.7)';
       ctx.lineWidth = 1;
@@ -255,20 +275,6 @@ export class Renderer {
     ctx.lineCap = 'butt';
     this.hand(f, gx, gy - 6);
     this.hand(f, gx, gy + 6);
-  }
-
-  rollBall(f, x, base, white) {
-    const ctx = this.ctx;
-    const r = 12, cy = base - r;
-    const a = f.moveFrame * 0.5 * f.facing;
-    ctx.fillStyle = white ? '#fff' : f.char.color;
-    ctx.beginPath(); ctx.arc(x, cy, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = f.char.dark; ctx.lineWidth = 2;
-    for (let i = 0; i < 3; i++) {
-      ctx.beginPath(); ctx.arc(x, cy, r - 3, a + i * 2.1, a + i * 2.1 + 0.9); ctx.stroke();
-    }
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    for (let i = 1; i <= 3; i++) this.round(x - f.facing * (r + i * 6), base - 3 - i * 2, 5, 2, 1);
   }
 
   ears(f, x, top, white) {
@@ -311,6 +317,7 @@ export class Renderer {
   }
 
   projectile(p) {
+    if (p.data.kind === 'paw') return this.pawShot(p);
     const ctx = this.ctx;
     const d = Math.sign(p.vx) || 1;
     const len = p.w, rad = p.h / 2;
@@ -337,6 +344,23 @@ export class Renderer {
       ctx.restore();
     }
     ctx.restore();
+  }
+
+  pawShot(p) {
+    const ctx = this.ctx;
+    const d = Math.sign(p.vx) || 1;
+    const cx = p.x, cy = G - p.y - p.h / 2, r = p.h / 2 + 2;
+    for (let i = 1; i <= 3; i++) { // 꼬리
+      ctx.fillStyle = `rgba(255,143,179,${0.35 - i * 0.09})`;
+      ctx.beginPath(); ctx.arc(cx - d * i * 7, cy, r - i, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(255,200,220,0.9)';
+    ctx.beginPath(); ctx.arc(cx, cy, r + Math.sin(p.t / 2), 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff5f95';
+    ctx.beginPath(); ctx.ellipse(cx + d, cy + 2, r * 0.45, r * 0.38, 0, 0, Math.PI * 2); ctx.fill(); // 발바닥
+    for (const [ox, oy] of [[-0.45, -0.45], [0, -0.62], [0.45, -0.45]]) {
+      ctx.beginPath(); ctx.arc(cx + d + ox * r, cy + oy * r, r * 0.16, 0, Math.PI * 2); ctx.fill(); // 발가락
+    }
   }
 
   effect(e) {

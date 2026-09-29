@@ -175,7 +175,7 @@ export class Game {
     const hits = [];
     for (const [att, def] of [[a, b], [b, a]]) {
       const act = att.activeHit();
-      if (!act || def.invuln) continue;
+      if (!act || !def.hittableBy(act.hit)) continue;
       if (act.hit.throw && !def.canBeThrown()) continue;
       const hr = att.hitRect(act.hit.hitbox), dr = def.hurtRect();
       if (overlap(hr, dr)) hits.push({ att, def, ...act, hr, dr });
@@ -290,7 +290,7 @@ export class Game {
     for (const p of list) {
       if (p.hitsLeft <= 0 || p.cooldown > 0) continue;
       const def = this.p[1 - p.owner.index];
-      if (def.invuln) continue;
+      if (!def.hittableBy(p.data)) continue;
       const pr = this.projRect(p), dr = def.hurtRect();
       if (!overlap(pr, dr)) continue;
       p.hitsLeft--;

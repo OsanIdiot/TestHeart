@@ -1,5 +1,5 @@
 // 단순한 컴퓨터 상대: 몇 프레임마다 거리를 보고 행동을 정함
-// 필살기는 사람처럼 커맨드(↓↘→ + 강펀치 등)를 한 프레임씩 입력함
+// 필살기는 사람처럼 커맨드(↓↘→ + 펀치 등)를 한 프레임씩 입력함
 import { CONFIG as C } from './data.js';
 
 const BUTTONS = ['LP', 'HP', 'LK', 'HK'];
@@ -30,7 +30,8 @@ export class Cpu {
     if (sp?.super && me.meter < C.METER_MAX) sp = me.char.specials.find((s) => s.motion === '236');
     if (!sp) return;
     const dirs = MOTION_DIRS[sp.motion];
-    this.queue = dirs.map((d, i) => dirInput(d, me.facing, i === dirs.length - 1 ? sp.btn : null));
+    const btn = (Math.random() < 0.6 ? 'H' : 'L') + sp.btn; // 약/강 버전 섞어서
+    this.queue = dirs.map((d, i) => dirInput(d, me.facing, i === dirs.length - 1 ? btn : null));
   }
 
   think(me, opp) {
@@ -80,19 +81,19 @@ export class Cpu {
     } else if (full && r < 0.08) {
       special('236236');
     } else if (dist > 110) {
-      if (ruru && !me.projectileAlive && r < 0.45) special('236');
+      if (!me.projectileAlive && r < (ruru ? 0.45 : 0.25)) special('236');
       else { plan = r < 0.1 ? { ...plan, up: true, h: toward } : { ...plan, h: toward }; dur = 16; }
     } else if (dist > 55) {
       if (r < 0.35) plan = { ...plan, h: toward };
-      else if (r < 0.5) { if (ruru && !me.projectileAlive) special('236'); else plan = { ...plan, down: true, btn: 'HK' }; }
-      else if (r < 0.62) special(ruru ? '214' : '236');
+      else if (r < 0.5) { if (!me.projectileAlive) special('236'); else plan = { ...plan, down: true, btn: 'HK' }; }
+      else if (r < 0.62) special('214');
       else if (r < 0.72) plan = { ...plan, btn: 'HK' };
       else if (r < 0.82) plan = { ...plan, up: true, h: toward };
       else if (r < 0.9) plan = { ...plan, h: -toward };
     } else {
       if (r < 0.45) plan = { ...plan, btn: pick(BUTTONS), down: Math.random() < 0.4 };
       else if (r < 0.55) plan = { ...plan, btn: 'HP' }; // 가까우면 잡기가 됨
-      else if (r < 0.63 && !ruru) special('214');
+      else if (r < 0.63) special(Math.random() < 0.5 ? '214' : '623');
       else if (r < 0.75) plan = { ...plan, h: -toward };
       else if (r < 0.85) plan = { ...plan, kind: 'block', h: -toward, down: true };
       else if (r < 0.9) plan = { ...plan, up: true, h: -toward };

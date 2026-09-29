@@ -82,7 +82,7 @@ export class Fighter {
   }
 
   // 버튼이 눌린 순간, 커맨드까지 보고 무슨 기술인지 결정
-  //  커맨드 + 강펀치/강킥 = 필살기, 아주 가까이서 강펀치 = 잡기
+  //  커맨드 + P/K = 필살기 (약/강 버전), 아주 가까이서 강펀치 = 잡기
   resolvePress(inp) {
     const p = inp.pressed;
     const btn = BUTTON_PRIORITY.find((b) => p[b]);
@@ -94,9 +94,10 @@ export class Fighter {
       const sup = this.char.specials.find((s) => s.super);
       if (sup) return { special: sup };
     }
+    const P = p.LP || p.HP, K = p.LK || p.HK;
     for (const sp of this.char.specials) {
-      if (p[sp.btn] && this.matchMotion(sp.motion) && (!sp.super || this.meter >= C.METER_MAX)) {
-        return { special: sp };
+      if ((sp.btn === 'P' ? P : K) && this.matchMotion(sp.motion) && (!sp.super || this.meter >= C.METER_MAX)) {
+        return { special: sp, strength: p.HP || p.HK ? 'H' : 'L' };
       }
     }
     if (p.HP && this.inCloseRange(inp)) {
@@ -122,7 +123,10 @@ export class Fighter {
   }
 
   moveKeyFor(b) {
-    if (b.special) return b.special.move;
+    if (b.special) {
+      const base = b.special.move;
+      return MOVES[base + b.strength] ? base + b.strength : base;
+    }
     if (b.btn.startsWith('throw')) return this.y > 0 ? 'jHP' : b.btn;
     return (this.y > 0 ? 'j' : this.inp.down ? 'c' : 's') + b.btn;
   }
@@ -319,6 +323,12 @@ export class Fighter {
     return true;
   }
 
+  // 다단히트 기술(juggle)은 공중에 뜬 상대도 계속 때릴 수 있음
+  hittableBy(hit) {
+    if (this.state === 'airhit' && hit.juggle && this.hp > 0 && this.juggles < 12) return true;
+    return !this.invuln;
+  }
+
   canBeThrown() {
     return this.grounded && !this.stunned && !this.invuln;
   }
@@ -332,6 +342,7 @@ export class Fighter {
       return 'block';
     }
     this.combo++;
+    this.juggles = this.state === 'airhit' ? (this.juggles || 0) + 1 : 0;
     const scale = Math.max(C.MIN_SCALING, 1 - C.COMBO_SCALING * (this.combo - 1));
     const dmg = Math.round(hit.damage * scale);
     this.hp = Math.max(this.noKo ? 1 : 0, this.hp - dmg);
@@ -348,9 +359,12 @@ export class Fighter {
     if (hit.throw) {
       this.setState('airhit');
       this.vy = 5; this.vx = dir * 3.2; this.y = Math.max(this.y, 1);
-    } else if (this.y > 0 || (hit.launch && last)) {
+    } else if (this.y > 0 || (hit.launch && last) || hit.lift) {
       this.setState('airhit');
-      this.vy = hit.launch ? 7 : 4; this.vx = dir * 1.8; this.y = Math.max(this.y, 1);
+      if (hit.launch) { this.vy = 7; this.vx = dir * 1.8; }
+      else if (hit.juggle) { this.vy = hit.lift ?? 3.5; this.vx = dir * 0.6; } // 연타 중엔 거의 제자리에 띄워 둠
+      else { this.vy = 4; this.vx = dir * 1.8; }
+      this.y = Math.max(this.y, 1);
     } else if (hit.knockdown) {
       this.setState('airhit');
       this.vy = 3; this.vx = dir * 1.5; this.y = 1;

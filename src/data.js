@@ -86,32 +86,34 @@ export const CHARACTERS = [
   {
     name: 'MOMO', ko: '모모', ears: 'cat', style: '빠른 근접 격투',
     color: '#ff8fb3', dark: '#e0567f', light: '#ffd6e3',
-    // 커맨드 + 강펀치(HP) 또는 강킥(HK) → 필살기
+    // 커맨드 + P(펀치) 또는 K(킥). 약 버튼 = 약 버전, 강 버튼 = 강 버전
     specials: [
-      { motion: '236236', btn: 'HP', move: 'momoSuper', super: true },
-      { motion: '623', btn: 'HP', move: 'momoUpper' },
-      { motion: '236', btn: 'HP', move: 'momoClaw' },
-      { motion: '214', btn: 'HK', move: 'momoRoll' },
+      { motion: '236236', btn: 'P', move: 'momoSuper', super: true },
+      { motion: '623', btn: 'P', move: 'momoUpper' },
+      { motion: '236', btn: 'P', move: 'momoFire' },
+      { motion: '214', btn: 'K', move: 'momoSpin' },
     ],
     combos: [
-      '앉아 약킥 → 앉아 약펀치 → 서서 강펀치 → ↓↘→+강P 냥냥 발톱',
+      '앉아 약킥 → 앉아 약펀치 → 서서 강펀치 → ↓↘→+강P 냥냥 파동',
       '점프 강킥 → 서서 강펀치 → →↓↘+강P 냥 어퍼',
-      '앉아 약킥 → 서서 강펀치 → ↓↘→↓↘→+강P 냥냥 난무 (게이지 MAX)',
+      '앉아 약킥 → 서서 강펀치 → ↓↙←+강K 냥냥 회오리킥',
+      '앉아 약킥 → 서서 강펀치 → ↓↘→↓↘→+P 냥냥 난무 (게이지 MAX)',
     ],
   },
   {
     name: 'RURU', ko: '루루', ears: 'bunny', style: '멀리서 견제',
     color: '#7ec8ff', dark: '#3f8fd6', light: '#d6eeff',
     specials: [
-      { motion: '236236', btn: 'HP', move: 'ruruSuper', super: true },
-      { motion: '623', btn: 'HK', move: 'ruruRise' },
-      { motion: '236', btn: 'HP', move: 'ruruCarrot' },
-      { motion: '214', btn: 'HK', move: 'ruruHop' },
+      { motion: '236236', btn: 'P', move: 'ruruSuper', super: true },
+      { motion: '623', btn: 'P', move: 'ruruUpper' },
+      { motion: '236', btn: 'P', move: 'ruruFire' },
+      { motion: '214', btn: 'K', move: 'ruruSpin' },
     ],
     combos: [
       '앉아 약킥 → 앉아 약킥 → 서서 강펀치 → ↓↘→+강P 당근 던지기',
-      '점프 강펀치 → 하이킥 → →↓↘+강K 깡총 킥',
-      '앉아 약킥 → 서서 강펀치 → ↓↘→↓↘→+강P 대왕 당근 (게이지 MAX)',
+      '점프 강펀치 → 하이킥 → →↓↘+강P 깡총 어퍼',
+      '앉아 약킥 → 서서 강펀치 → ↓↙←+강K 토끼 회오리킥',
+      '앉아 약킥 → 서서 강펀치 → ↓↘→↓↘→+P 대왕 당근 (게이지 MAX)',
     ],
   },
 ];
@@ -150,28 +152,55 @@ const RAW_MOVES = {
   // 잡기: 아주 가까이서 강펀치 (뒤+강펀치 = 뒤로 던지기). 가드 불가
   throw: { name: '잡기', limb: 'grab', startup: 2, active: 3, recovery: 22, damage: 120, hitstun: 0, blockstun: 0, push: 0, guard: 'throw', hitstop: 14, hitbox: { x: 6, y: 10, w: 26, h: 40 }, throw: true, knockdown: true, shake: 4 },
   throwB: { name: '뒤잡기', limb: 'grab', startup: 2, active: 3, recovery: 22, damage: 120, hitstun: 0, blockstun: 0, push: 0, guard: 'throw', hitstop: 14, hitbox: { x: 6, y: 10, w: 26, h: 40 }, throw: true, backThrow: true, knockdown: true, shake: 4 },
-
-  // ---------------- 모모 (고양이) ----------------
-  momoClaw: { name: '냥냥 발톱', limb: 'claw', total: 38, moveX: [[3, 16, 6]],
-    hits: [{ start: 9, end: 16, damage: 110, hitstun: 20, blockstun: 12, push: 6, guard: 'mid', hitstop: 12, hitbox: { x: 8, y: 26, w: 26, h: 18 }, knockdown: true, shake: 3 }] },
-  momoUpper: { name: '냥 어퍼', limb: 'punch', total: 40, invuln: [0, 9], jump: { frame: 3, vx: 1.8, vy: 9 }, landLag: 14,
-    hits: [{ start: 3, end: 11, damage: 130, hitstun: 20, blockstun: 16, push: 3, guard: 'mid', hitstop: 13, hitbox: { x: 4, y: 34, w: 22, h: 36 }, launch: true, shake: 5 }] },
-  momoRoll: { name: '고양이 구르기', limb: 'body', total: 36, hurtH: 22, moveX: [[2, 24, 5]],
-    hits: [{ start: 6, end: 24, damage: 85, hitstun: 18, blockstun: 12, push: 4, guard: 'low', hitstop: 10, hitbox: { x: 0, y: 0, w: 24, h: 18 }, knockdown: true }] },
-  momoSuper: { name: '냥냥 난무', limb: 'claw', total: 62, super: true, invuln: [0, 14], moveX: [[4, 22, 6]],
-    hits: [10, 15, 20, 25].map((s) => ({ start: s, end: s + 3, damage: 45, hitstun: 30, blockstun: 8, push: 1, guard: 'mid', hitstop: 5, hitbox: { x: 4, y: 18, w: 32, h: 32 } }))
-      .concat([{ start: 32, end: 36, damage: 140, hitstun: 30, blockstun: 14, push: 4, guard: 'mid', hitstop: 20, hitbox: { x: 4, y: 18, w: 34, h: 40 }, launch: true, shake: 8 }]) },
-
-  // ---------------- 루루 (토끼) ----------------
-  ruruCarrot: { name: '당근 던지기', limb: 'punch', total: 44, hits: [],
-    projectile: { frame: 13, speed: 4.6, w: 18, h: 8, y: 30, life: 120, hits: 1, damage: 80, hitstun: 18, blockstun: 14, push: 4, guard: 'mid', hitstop: 8 } },
-  ruruRise: { name: '깡총 킥', limb: 'kick', total: 42, invuln: [0, 8], jump: { frame: 3, vx: 1.6, vy: 9.5 }, landLag: 14,
-    hits: [{ start: 3, end: 12, damage: 125, hitstun: 20, blockstun: 16, push: 3, guard: 'mid', hitstop: 13, hitbox: { x: 2, y: 30, w: 26, h: 38 }, launch: true, shake: 5 }] },
-  ruruHop: { name: '당근 내려찍기', limb: 'kick', total: 44, jump: { frame: 4, vx: 3.6, vy: 6.5 }, landLag: 8,
-    hits: [{ start: 15, end: 44, damage: 90, hitstun: 20, blockstun: 12, push: 4, guard: 'high', hitstop: 11, hitbox: { x: 0, y: -4, w: 30, h: 16 }, shake: 3 }] },
-  ruruSuper: { name: '대왕 당근', limb: 'punch', total: 52, super: true, invuln: [0, 16], hits: [],
-    projectile: { frame: 16, speed: 4, w: 36, h: 28, y: 14, life: 130, hits: 5, interval: 6, damage: 55, hitstun: 26, blockstun: 10, push: 1, guard: 'mid', hitstop: 6, lastLaunch: true, big: true } },
 };
+
+// ------------------------------------------------------------
+//  필살기 (두 캐릭터 공통 틀, 이름과 모양만 다름)
+//   ↓↘→ + P : 장풍      약P = 1히트, 강P = 3히트
+//   →↓↘ + P : 승룡권    약P = 1히트, 강P = 3히트 (무적, 띄우면서 연타)
+//   ↓↙← + K : 회오리킥  약K = 조금 이동 3히트, 강K = 길게 이동 5히트
+//   juggle   : 공중에 뜬 상대도 계속 맞음 (다단히트용)
+//   lift     : 맞은 상대를 살짝 띄움 (승룡권 연타가 끝까지 들어가도록)
+// ------------------------------------------------------------
+const repeatHits = (starts, len, hit) => starts.map((s) => ({ start: s, end: s + len, ...hit }));
+
+function shotoSpecials(p, names, shot) {
+  return {
+    [`${p}FireL`]: { name: names.fire, limb: 'punch', total: 42, hits: [],
+      projectile: { frame: 12, speed: 3.6, ...shot, y: 30, life: 150, hits: 1, damage: 70, hitstun: 18, blockstun: 14, push: 4, guard: 'mid', hitstop: 8 } },
+    [`${p}FireH`]: { name: names.fire, limb: 'punch', total: 46, hits: [],
+      projectile: { frame: 13, speed: 3.0, ...shot, w: shot.w + 4, h: shot.h + 4, y: 28, life: 170, hits: 3, interval: 6, damage: 34, hitstun: 22, blockstun: 10, push: 1.5, guard: 'mid', hitstop: 6, juggle: true, multi: true } },
+
+    [`${p}UpperL`]: { name: names.upper, limb: 'punch', total: 36, invuln: [0, 5], jump: { frame: 3, vx: 1.2, vy: 7.5 }, landLag: 12,
+      hits: [{ start: 3, end: 10, damage: 100, hitstun: 20, blockstun: 16, push: 3, guard: 'mid', hitstop: 12, hitbox: { x: 4, y: 30, w: 22, h: 36 }, launch: true, shake: 4 }] },
+    [`${p}UpperH`]: { name: names.upper, limb: 'punch', total: 46, invuln: [0, 10], jump: { frame: 3, vx: 1.6, vy: 9 }, landLag: 16,
+      hits: [
+        { start: 2, end: 6, damage: 45, hitstun: 26, blockstun: 12, push: 0.5, guard: 'mid', hitstop: 6, hitbox: { x: 0, y: 8, w: 28, h: 62 }, juggle: true, lift: 8 },
+        { start: 7, end: 11, damage: 40, hitstun: 26, blockstun: 12, push: 0.5, guard: 'mid', hitstop: 6, hitbox: { x: 0, y: 0, w: 30, h: 82 }, juggle: true, lift: 7 },
+        { start: 12, end: 18, damage: 60, hitstun: 20, blockstun: 16, push: 3, guard: 'mid', hitstop: 14, hitbox: { x: 0, y: 0, w: 30, h: 90 }, juggle: true, launch: true, shake: 5 },
+      ] },
+
+    [`${p}SpinL`]: { name: names.spin, limb: 'spin', total: 32, moveX: [[3, 20, 2.2]],
+      hits: repeatHits([6, 11, 16], 3, { damage: 30, hitstun: 18, blockstun: 8, push: 1, guard: 'mid', hitstop: 5, hitbox: { x: -8, y: 20, w: 42, h: 24 }, juggle: true }) },
+    [`${p}SpinH`]: { name: names.spin, limb: 'spin', total: 44, moveX: [[3, 34, 4]],
+      hits: repeatHits([6, 11, 16, 21], 3, { damage: 28, hitstun: 18, blockstun: 8, push: 1, guard: 'mid', hitstop: 5, hitbox: { x: -8, y: 20, w: 44, h: 24 }, juggle: true })
+        .concat([{ start: 27, end: 31, damage: 50, hitstun: 20, blockstun: 12, push: 4, guard: 'mid', hitstop: 12, hitbox: { x: -8, y: 20, w: 44, h: 24 }, juggle: true, knockdown: true, shake: 4 }]) },
+  };
+}
+
+const SPECIALS = {
+  // ---------------- 모모 (고양이): 발바닥 기운 ----------------
+  ...shotoSpecials('momo', { fire: '냥냥 파동', upper: '냥 어퍼', spin: '냥냥 회오리킥' }, { w: 16, h: 14, kind: 'paw' }),
+  momoSuper: { name: '냥냥 난무', limb: 'claw', total: 78, super: true, invuln: [0, 16], moveX: [[4, 26, 6]],
+    hits: repeatHits([10, 14, 18, 22, 26, 30, 34, 38, 42], 3, { damage: 24, hitstun: 30, blockstun: 6, push: 0.5, guard: 'mid', hitstop: 4, hitbox: { x: 2, y: 14, w: 34, h: 40 }, juggle: true })
+      .concat([{ start: 48, end: 52, damage: 130, hitstun: 30, blockstun: 14, push: 4, guard: 'mid', hitstop: 20, hitbox: { x: 2, y: 14, w: 36, h: 48 }, juggle: true, launch: true, shake: 8 }]) },
+
+  // ---------------- 루루 (토끼): 당근 ----------------
+  ...shotoSpecials('ruru', { fire: '당근 던지기', upper: '깡총 어퍼', spin: '토끼 회오리킥' }, { w: 18, h: 8, kind: 'carrot' }),
+  ruruSuper: { name: '대왕 당근', limb: 'punch', total: 56, super: true, invuln: [0, 16], hits: [],
+    projectile: { frame: 16, speed: 4, w: 36, h: 28, y: 14, kind: 'carrot', life: 170, hits: 10, interval: 4, damage: 30, hitstun: 28, blockstun: 8, push: 0.6, guard: 'mid', hitstop: 5, juggle: true, lastLaunch: true, big: true } },
+};
+Object.assign(RAW_MOVES, SPECIALS);
 
 // 단순 기술(startup/active/recovery)을 공통 형식(hits 목록)으로 변환
 function normalize(m) {

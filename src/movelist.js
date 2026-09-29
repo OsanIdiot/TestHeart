@@ -2,7 +2,8 @@
 import { CHARACTERS, MOVES } from './data.js';
 
 const ARROWS = { 1: '↙', 2: '↓', 3: '↘', 4: '←', 6: '→', 7: '↖', 8: '↑', 9: '↗' };
-const BTN = { HP: '강P', HK: '강K' };
+const BTN = { P: 'P', K: 'K' };
+const NOTE = { '236': '약: 1히트 · 강: 3히트', '623': '약: 1히트 · 강: 3히트, 무적', '214': '약: 조금 이동 3히트 · 강: 길게 이동 5히트', '236236': '10히트' };
 
 const command = (motion) => [...motion].map((d) => ARROWS[d]).join('');
 
@@ -19,8 +20,8 @@ export function renderMoveList(el, touch) {
     </div>`;
   const chars = CHARACTERS.map((c) => {
     const rows = c.specials.map((s) => {
-      const name = MOVES[s.move].name;
-      return `<li><span class="mv-name">${name}${s.super ? ' <i>초필살</i>' : ''}</span><span class="mv-key">${command(s.motion)} + ${BTN[s.btn]}</span></li>`;
+      const name = (MOVES[s.move] || MOVES[s.move + 'L']).name;
+      return `<li><span class="mv-name">${name}${s.super ? ' <i>초필살</i>' : ''}<small class="mv-note">${NOTE[s.motion]}</small></span><span class="mv-key">${command(s.motion)} + ${BTN[s.btn]}</span></li>`;
     }).join('');
     const combos = c.combos.map((t) => `<li>${t}</li>`).join('');
     return `

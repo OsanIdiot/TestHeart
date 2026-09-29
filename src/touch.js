@@ -37,7 +37,7 @@ export function setupTouch() {
   stick.addEventListener('pointercancel', (e) => { if (e.pointerId === stickId) releaseStick(); });
 
   for (const btn of document.querySelectorAll('[data-btn]')) {
-    const keys = btn.dataset.btn.split(' '); // 잡기 버튼은 "LP LK" 두 개를 동시에
+    const keys = btn.dataset.btn.split(' ');
     const down = (e) => {
       keys.forEach((k) => setTouch(k, true)); btn.classList.add('on'); capture(btn, e);
       navigator.vibrate?.(8);

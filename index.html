@@ -49,14 +49,12 @@
   #knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
           background: var(--pink); box-shadow: inset 0 -5px 0 var(--pink-d); pointer-events: none; }
 
-  .btns { --b: 58px; display: grid; grid-template-columns: repeat(3, var(--b)); gap: 8px; flex: none; }
+  .btns { --b: 66px; display: grid; grid-template-columns: repeat(2, var(--b)); gap: 8px; flex: none; }
   .btns button { width: var(--b); height: var(--b); border-radius: 50%; border: 0; color: #fff; font-family: inherit; font-weight: 900; font-size: 14px; line-height: 1.1;
                  touch-action: none; transition: transform 40ms; }
   .btns button small { display: block; font-size: 10px; font-weight: 700; opacity: 0.85; }
   .btns [data-btn="LP"], .btns [data-btn="HP"] { background: var(--pink); box-shadow: inset 0 -6px 0 var(--pink-d); }
   .btns [data-btn="LK"], .btns [data-btn="HK"] { background: var(--sky); box-shadow: inset 0 -6px 0 var(--sky-d); }
-  .btns [data-btn="SP"] { background: var(--gold); box-shadow: inset 0 -6px 0 var(--gold-d); color: #5a3a00; }
-  .btns [data-btn="LP LK"] { background: #b58ad8; box-shadow: inset 0 -6px 0 #8a5fb0; }
   .btns button.on { transform: scale(0.9); box-shadow: inset 0 0 0 3px rgba(255,255,255,0.6); }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -74,7 +72,7 @@
     html.touch .tools { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); }
     html.touch .controls > *, html.touch .tools { pointer-events: auto; opacity: 0.6; }
     html.touch #stick { width: 120px; height: 120px; }
-    html.touch .btns { --b: 50px; gap: 6px; }
+    html.touch .btns { --b: 58px; gap: 8px; }
   }
 </style>
 
@@ -93,10 +91,8 @@
       <div class="btns">
         <button type="button" data-btn="LP">약P<small>펀치</small></button>
         <button type="button" data-btn="HP">강P<small>펀치</small></button>
-        <button type="button" data-btn="SP">필살<small>+방향</small></button>
         <button type="button" data-btn="LK">약K<small>킥</small></button>
         <button type="button" data-btn="HK">강K<small>킥</small></button>
-        <button type="button" data-btn="LP LK">잡기<small>근접</small></button>
       </div>
     </div>
   </div>
@@ -111,14 +107,14 @@
     <section>
       <h2>1P 모모 (분홍)</h2>
       이동 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><br>
-      약펀치 <kbd>F</kbd> 강펀치 <kbd>G</kbd> · 약킥 <kbd>V</kbd> 강킥 <kbd>B</kbd><br>
-      필살 버튼 <kbd>R</kbd> <span class="muted">(방향과 함께, 커맨드 대신)</span>
+      약펀치 <kbd>F</kbd> 강펀치 <kbd>G</kbd><br>
+      약킥 <kbd>V</kbd> 강킥 <kbd>B</kbd>
     </section>
     <section>
       <h2>2P 루루 (하늘)</h2>
       이동 <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd><br>
-      약펀치 <kbd>K</kbd> 강펀치 <kbd>L</kbd> · 약킥 <kbd>,</kbd> 강킥 <kbd>.</kbd><br>
-      필살 버튼 <kbd>;</kbd> <span class="muted">(숫자패드 4 5 1 2 6도 가능)</span>
+      약펀치 <kbd>K</kbd> 강펀치 <kbd>L</kbd> (또는 숫자패드 <kbd>4</kbd><kbd>5</kbd>)<br>
+      약킥 <kbd>,</kbd> 강킥 <kbd>.</kbd> (또는 숫자패드 <kbd>1</kbd><kbd>2</kbd>)
     </section>
     <section>
       <h2>기본 공략</h2>
@@ -130,7 +126,7 @@
     <section>
       <h2>기타</h2>
       <kbd>H</kbd> 판정 박스 보기 (초록=맞는 곳, 빨강=때리는 곳)<br>
-      <kbd>Esc</kbd> 일시정지 · 게임패드 2개까지 지원 (RB=필살)<br>
+      <kbd>Esc</kbd> 일시정지 · 게임패드 2개까지 지원<br>
       <span class="muted">트레이닝: 숫자 <kbd>1</kbd>~<kbd>5</kbd>로 허수아비 행동 변경, <kbd>0</kbd> 위치 초기화, 게이지 무한</span>
     </section>
     <section class="wide">

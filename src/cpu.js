@@ -1,23 +1,40 @@
 // 단순한 컴퓨터 상대: 몇 프레임마다 거리를 보고 행동을 정함
-// 필살기는 "필살 버튼 + 방향"으로 씀 (중립=↓↘→, 앞=→↓↘, 뒤=↓↙←, 아래=초필살기)
+// 필살기는 사람처럼 커맨드(↓↘→ + 강펀치 등)를 한 프레임씩 입력함
 import { CONFIG as C } from './data.js';
 
 const BUTTONS = ['LP', 'HP', 'LK', 'HK'];
+const MOTION_DIRS = { '236': [2, 3, 6], '623': [6, 2, 3], '214': [2, 1, 4], '236236': [2, 3, 6, 2, 3, 6] };
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 function makeInput(dirH, up, down, btns) {
-  const held = { LP: false, HP: false, LK: false, HK: false, SP: false };
+  const held = { LP: false, HP: false, LK: false, HK: false };
   const pressed = { ...held };
   for (const b of [].concat(btns || [])) { held[b] = true; pressed[b] = true; }
   return { left: dirH < 0, right: dirH > 0, up, down, held, pressed };
 }
 
+// 숫자패드 방향(캐릭터 기준) → 실제 입력
+function dirInput(d, facing, btn) {
+  const rel = ((d - 1) % 3) - 1;
+  return makeInput(rel * facing, d >= 7, d <= 3, btn);
+}
+
 export class Cpu {
   constructor() { this.reset(); }
 
-  reset() { this.plan = null; this.timer = 0; this.comboed = false; this.jumpAttacked = false; }
+  reset() { this.plan = null; this.timer = 0; this.comboed = false; this.jumpAttacked = false; this.queue = []; }
+
+  // 커맨드 입력 예약. 게이지가 없으면 초필살기 대신 ↓↘→ 필살기
+  special(me, motion) {
+    let sp = me.char.specials.find((s) => s.motion === motion);
+    if (sp?.super && me.meter < C.METER_MAX) sp = me.char.specials.find((s) => s.motion === '236');
+    if (!sp) return;
+    const dirs = MOTION_DIRS[sp.motion];
+    this.queue = dirs.map((d, i) => dirInput(d, me.facing, i === dirs.length - 1 ? sp.btn : null));
+  }
 
   think(me, opp) {
+    if (this.queue.length) return this.queue.shift();
     const dist = Math.abs(opp.x - me.x);
     const toward = Math.sign(opp.x - me.x) || me.facing;
     const ruru = me.char.name === 'RURU';
@@ -29,7 +46,7 @@ export class Cpu {
       this.comboed = me.move.cancel === 'special';
       const r = Math.random();
       if (me.move.cancel === 'normal' && r < 0.6) return makeInput(0, false, false, pick(['HP', 'HK']));
-      if (r < (full ? 0.7 : 0.55)) return full ? makeInput(0, false, true, 'SP') : makeInput(0, false, false, 'SP');
+      if (r < (full ? 0.7 : 0.55)) { this.special(me, full ? '236236' : '236'); return this.queue.shift(); }
     }
     // 점프 중 가까워지면 점프 공격
     if (me.state !== 'air') this.jumpAttacked = false;
@@ -40,6 +57,7 @@ export class Cpu {
 
     if (--this.timer <= 0 || (opp.state === 'attack' && this.plan?.kind !== 'block' && Math.random() < 0.15)) {
       this.decide(me, opp, dist, toward, ruru, full);
+      if (this.queue.length) return this.queue.shift();
     }
     const p = this.plan;
     const age = p.age++;
@@ -50,33 +68,31 @@ export class Cpu {
     const r = Math.random();
     let plan = { kind: 'idle', h: 0, up: false, down: false, btn: null, age: 0 };
     let dur = 8 + Math.floor(Math.random() * 10);
-    const sp = (dir, extra = {}) => ({ ...plan, kind: 'special', btn: 'SP', h: dir, ...extra });
+    const special = (motion) => { this.special(me, motion); dur = 30; };
 
     if (opp.state === 'attack' && dist < 90 && r < 0.55) {
       const g = opp.activeHit()?.hit.guard ?? opp.move?.hits[0]?.guard;
       plan = { ...plan, kind: 'block', h: -toward, down: g === 'low' ? true : g === 'high' ? false : Math.random() < 0.5 };
       dur = 14;
     } else if (opp.y > 20 && dist < 80 && r < 0.5) {
-      plan = Math.random() < 0.5 ? sp(toward) : { ...plan, kind: 'antiair', down: true, btn: 'HP' };
-      dur = 24;
+      if (Math.random() < 0.5) special('623');
+      else { plan = { ...plan, kind: 'antiair', down: true, btn: 'HP' }; dur = 24; }
     } else if (full && r < 0.08) {
-      plan = sp(0, { down: true });
-      dur = 30;
+      special('236236');
     } else if (dist > 110) {
-      if (ruru && !me.projectileAlive && r < 0.45) { plan = sp(0); dur = 30; }
-      else plan = r < 0.1 ? { ...plan, up: true, h: toward } : { ...plan, h: toward };
-      dur = Math.max(dur, 16);
+      if (ruru && !me.projectileAlive && r < 0.45) special('236');
+      else { plan = r < 0.1 ? { ...plan, up: true, h: toward } : { ...plan, h: toward }; dur = 16; }
     } else if (dist > 55) {
       if (r < 0.35) plan = { ...plan, h: toward };
-      else if (r < 0.5) plan = ruru && !me.projectileAlive ? sp(0) : { ...plan, down: true, btn: 'HK' };
-      else if (r < 0.62) plan = ruru ? sp(-toward) : sp(0);
+      else if (r < 0.5) { if (ruru && !me.projectileAlive) special('236'); else plan = { ...plan, down: true, btn: 'HK' }; }
+      else if (r < 0.62) special(ruru ? '214' : '236');
       else if (r < 0.72) plan = { ...plan, btn: 'HK' };
       else if (r < 0.82) plan = { ...plan, up: true, h: toward };
       else if (r < 0.9) plan = { ...plan, h: -toward };
     } else {
       if (r < 0.45) plan = { ...plan, btn: pick(BUTTONS), down: Math.random() < 0.4 };
-      else if (r < 0.55) plan = { ...plan, btn: ['LP', 'LK'] }; // 잡기
-      else if (r < 0.63 && !ruru) plan = sp(-toward);
+      else if (r < 0.55) plan = { ...plan, btn: 'HP' }; // 가까우면 잡기가 됨
+      else if (r < 0.63 && !ruru) special('214');
       else if (r < 0.75) plan = { ...plan, h: -toward };
       else if (r < 0.85) plan = { ...plan, kind: 'block', h: -toward, down: true };
       else if (r < 0.9) plan = { ...plan, up: true, h: -toward };

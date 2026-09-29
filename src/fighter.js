@@ -1,6 +1,6 @@
 import { CONFIG as C, BODY, MOVES, MOTIONS } from './data.js';
 
-const NO_BUTTONS = { LP: false, HP: false, LK: false, HK: false, SP: false };
+const NO_BUTTONS = { LP: false, HP: false, LK: false, HK: false };
 export const EMPTY_INPUT = {
   left: false, right: false, up: false, down: false,
   held: NO_BUTTONS, pressed: NO_BUTTONS,
@@ -11,9 +11,6 @@ const INVULN = new Set(['down', 'getup', 'airhit', 'ko']);
 const STUNNED = new Set(['hitstun', 'blockstun']);
 const BUTTON_PRIORITY = ['HK', 'HP', 'LK', 'LP'];
 const HIST_LEN = 40;
-
-// 폰의 "필살" 버튼 + 방향 → 어떤 커맨드로 볼지
-const SP_DIR = { '중립': '236', '앞': '623', '뒤': '214', '아래': '236236' };
 
 export class Fighter {
   constructor(index, char) {
@@ -83,28 +80,26 @@ export class Fighter {
   }
 
   // 버튼이 눌린 순간, 커맨드까지 보고 무슨 기술인지 결정
+  //  커맨드 + 강펀치/강킥 = 필살기, 아주 가까이서 강펀치 = 잡기
   resolvePress(inp) {
     const p = inp.pressed;
-    if (p.SP) {
-      const d = this.dirNumber(inp);
-      const want = d === 2 || d === 1 || d === 3 ? '아래' : d === 6 || d === 9 ? '앞' : d === 4 || d === 7 ? '뒤' : '중립';
-      const sp = this.char.specials.find((s) => s.motion === SP_DIR[want]);
-      if (sp && (!sp.super || this.meter >= C.METER_MAX)) return { special: sp, strength: 'H' };
-      if (sp?.super) { // 게이지가 모자라면 기본 필살기로
-        return { special: this.char.specials.find((s) => s.motion === '236'), strength: 'H' };
-      }
-    }
-    const P = p.LP || p.HP, K = p.LK || p.HK;
-    if (!P && !K) return null;
-    const strength = p.HP || p.HK ? 'H' : 'L';
+    const btn = BUTTON_PRIORITY.find((b) => p[b]);
+    if (!btn) return null;
     for (const sp of this.char.specials) {
-      if ((sp.btn === 'P' ? P : K) && this.matchMotion(sp.motion) && (!sp.super || this.meter >= C.METER_MAX)) {
-        return { special: sp, strength };
+      if (p[sp.btn] && this.matchMotion(sp.motion) && (!sp.super || this.meter >= C.METER_MAX)) {
+        return { special: sp };
       }
     }
-    const h = inp.held;
-    if ((p.LP && h.LK) || (p.LK && h.LP)) return { btn: 'throw' };
-    return { btn: BUTTON_PRIORITY.find((b) => p[b]) };
+    if (p.HP && this.inCloseRange(inp)) {
+      const back = this.dirNumber(inp) === 4;
+      return { btn: back ? 'throwB' : 'throw' };
+    }
+    return { btn };
+  }
+
+  inCloseRange(inp) {
+    const o = this.opp;
+    return !!o && this.grounded && !inp.down && Math.abs(o.x - this.x) <= C.THROW_RANGE && o.canBeThrown();
   }
 
   // 선입력 버퍼: 조금 일찍 누른 버튼을 몇 프레임 기억
@@ -118,11 +113,8 @@ export class Fighter {
   }
 
   moveKeyFor(b) {
-    if (b.special) {
-      const base = b.special.move;
-      return MOVES[base + b.strength] ? base + b.strength : MOVES[base + 'L'] ? base + 'L' : base;
-    }
-    if (b.btn === 'throw') return 'throw';
+    if (b.special) return b.special.move;
+    if (b.btn.startsWith('throw')) return this.y > 0 ? 'jHP' : b.btn;
     return (this.y > 0 ? 'j' : this.inp.down ? 'c' : 's') + b.btn;
   }
 
@@ -164,7 +156,7 @@ export class Fighter {
         }
         break;
       case 'air':
-        if (this.buffer && !this.airAttacked && !this.buffer.special && this.buffer.btn !== 'throw') {
+        if (this.buffer && !this.airAttacked && !this.buffer.special) {
           this.airAttacked = true;
           this.startMove(this.moveKeyFor(this.buffer));
         }
@@ -233,7 +225,7 @@ export class Fighter {
     if (!this.airMove) this.vx = 0;
     this.setState('attack');
     if (m.super) { this.meter -= C.METER_MAX; this.events.push({ type: 'super', name: m.name }); }
-    else if (!/^[scj][LH][PK]$|^throw$/.test(key)) { this.meter = Math.min(C.METER_MAX, this.meter + 30); this.events.push('special'); }
+    else if (!/^[scj][LH][PK]$|^throwB?$/.test(key)) { this.meter = Math.min(C.METER_MAX, this.meter + 30); this.events.push('special'); }
     this.events.push(key.includes('H') || m.super ? 'swingH' : 'swingL');
     this.moveTick();
   }
@@ -257,7 +249,7 @@ export class Fighter {
     // 캔슬: 공격을 맞혔으면 다음 기술로 끊어서 이어가기 (콤보)
     const b = this.buffer;
     if (this.contact && b && m.cancel && this.moveFrame < this.lastHitEnd() + C.CANCEL_WINDOW) {
-      const okNormal = m.cancel === 'normal' && !b.special && b.btn !== 'throw';
+      const okNormal = m.cancel === 'normal' && !b.special && !b.btn.startsWith('throw');
       if (b.special || okNormal) {
         const key = this.moveKeyFor(b);
         if (key !== this.moveKey || m.cancel === 'normal') { this.startMove(key); return; }
@@ -319,6 +311,7 @@ export class Fighter {
   }
 
   takeHit(attX, attFacing, hit, blocked, last = true) {
+    if (hit.backThrow) this.x = attX - attFacing * 22; // 뒤로 던지기: 반대편으로 넘김
     const dir = Math.sign(this.x - attX) || attFacing;
     if (blocked) {
       this.setState('blockstun');

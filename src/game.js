@@ -17,6 +17,8 @@ function overlap(a, b) {
 export class Game {
   constructor() {
     this.p = [new Fighter(0, CHARACTERS[0]), new Fighter(1, CHARACTERS[1])];
+    this.p[0].opp = this.p[1];
+    this.p[1].opp = this.p[0];
     this.cpu = new Cpu();
     this.effects = [];
     this.projectiles = [];

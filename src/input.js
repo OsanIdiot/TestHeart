@@ -1,20 +1,20 @@
 // 키보드 + 게임패드 입력
-const BUTTONS = ['LP', 'HP', 'LK', 'HK', 'SP'];
+const BUTTONS = ['LP', 'HP', 'LK', 'HK'];
 const DIRS = ['up', 'down', 'left', 'right'];
 
 export const KEYMAPS = [
   { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'],
-    LP: ['KeyF'], HP: ['KeyG'], LK: ['KeyV'], HK: ['KeyB'], SP: ['KeyR'] },
+    LP: ['KeyF'], HP: ['KeyG'], LK: ['KeyV'], HK: ['KeyB'] },
   { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'],
-    LP: ['Numpad4', 'KeyK'], HP: ['Numpad5', 'KeyL'], LK: ['Numpad1', 'Comma'], HK: ['Numpad2', 'Period'], SP: ['Numpad6', 'Semicolon'] },
+    LP: ['Numpad4', 'KeyK'], HP: ['Numpad5', 'KeyL'], LK: ['Numpad1', 'Comma'], HK: ['Numpad2', 'Period'] },
 ];
 
-// 게임패드: X=약펀치, Y=강펀치, A=약킥, B=강킥, RB=필살 (Xbox 배치 기준)
-const PAD_BUTTONS = { LP: 2, HP: 3, LK: 0, HK: 1, SP: 5 };
+// 게임패드: X=약펀치, Y=강펀치, A=약킥, B=강킥 (Xbox 배치 기준)
+const PAD_BUTTONS = { LP: 2, HP: 3, LK: 0, HK: 1 };
 const PAD_DIRS = { up: 12, down: 13, left: 14, right: 15 };
 
 // 화면 터치 조작 (1P에 합쳐짐)
-const touch = { up: false, down: false, left: false, right: false, LP: false, HP: false, LK: false, HK: false, SP: false };
+const touch = { up: false, down: false, left: false, right: false, LP: false, HP: false, LK: false, HK: false };
 const touchTaps = new Set();
 export function setTouch(key, on) {
   if (on && !touch[key]) touchTaps.add(key);
@@ -73,7 +73,7 @@ export function readFrame() {
     return {
       left: held.left && !both, right: held.right && !both,
       up: held.up, down: held.down,
-      held: { LP: held.LP, HP: held.HP, LK: held.LK, HK: held.HK, SP: held.SP },
+      held: { LP: held.LP, HP: held.HP, LK: held.LK, HK: held.HK },
       pressed,
     };
   });

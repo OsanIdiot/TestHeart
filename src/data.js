@@ -28,10 +28,13 @@ export const CONFIG = {
   BACKDASH_TIME: 20,
   BACKDASH_INVULN: 8,  // 백대시 시작 무적
 
-  INPUT_BUFFER: 6,     // 선입력: 몇 프레임 일찍 누른 버튼까지 기억할지
+  INPUT_BUFFER: 8,     // 선입력: 몇 프레임 일찍 누른 버튼까지 기억할지
   CANCEL_WINDOW: 8,    // 공격을 맞힌 뒤 다음 기술로 끊어줄 수 있는 여유
   PUSH_FRICTION: 0.78, // 밀려나는 힘이 줄어드는 비율
   THROW_RANGE: 34,     // 이 거리 안에서 강펀치를 누르면 잡기
+  THROW_HOLD: 12,      // 잡기: 붙잡고 들어 올리는 시간
+  THROW_SWING: 12,     // 잡기: 휘둘러 던지는 시간
+  THROW_TOTAL: 34,     // 잡기: 던진 사람이 다시 움직일 수 있을 때까지
   HIT_PUSH_SCALE: 0.6, // 맞았을 때는 막았을 때보다 덜 밀려남 (콤보가 이어지도록)
 
   DOWN_TIME: 40,       // 쓰러져 있는 시간
@@ -59,12 +62,25 @@ export const BODY = {
 //   4 5 6      623 = →↓↘   (앞, 아래, 아래앞)
 //   1 2 3      214 = ↓↙←   (아래, 아래뒤, 뒤)
 // ------------------------------------------------------------
+//  너그러운 판정: "3?" = 대각선은 건너뛰어도 됨, "6/3" = 둘 중 아무거나
+//  window = 커맨드를 몇 프레임 안에 넣어야 하는지 (60 = 1초)
 export const MOTIONS = {
-  '236236': { seq: [2, 3, 6, 2, 3, 6], window: 28 },
-  '623':    { seq: [6, 2, 3], window: 14, endOn: [3] },
-  '236':    { seq: [2, 3, 6], window: 12 },
-  '214':    { seq: [2, 1, 4], window: 12 },
+  '236236': { steps: '2 3? 6 2 3? 6', window: 40 },
+  '623':    { steps: '6/3 2/1 3', window: 20, endOn: [3] },
+  '236':    { steps: '2 3? 6', window: 18 },
+  '214':    { steps: '2 1? 4', window: 18 },
 };
+
+function expandSteps(text) {
+  let variants = [[]];
+  for (const tok of text.split(' ')) {
+    const opt = tok.endsWith('?');
+    const set = tok.replace('?', '').split('/').map(Number);
+    variants = variants.flatMap((v) => (opt ? [v, [...v, set]] : [[...v, set]]));
+  }
+  return variants;
+}
+for (const m of Object.values(MOTIONS)) m.variants = expandSteps(m.steps);
 
 export const CHARACTERS = [
   {
@@ -132,8 +148,8 @@ const RAW_MOVES = {
   jHK: { name: '점프 강킥',   limb: 'kick',  startup: 6, active: 8, recovery: 8,  damage: 80, hitstun: 22, blockstun: 14, push: 3, guard: 'high', hitstop: 11, hitbox: { x: 4, y: -4, w: 34, h: 14 }, shake: 2 },
 
   // 잡기: 아주 가까이서 강펀치 (뒤+강펀치 = 뒤로 던지기). 가드 불가
-  throw: { name: '잡기', limb: 'punch', startup: 2, active: 3, recovery: 22, damage: 120, hitstun: 0, blockstun: 0, push: 0, guard: 'throw', hitstop: 14, hitbox: { x: 6, y: 10, w: 26, h: 40 }, throw: true, knockdown: true, shake: 4 },
-  throwB: { name: '뒤잡기', limb: 'punch', startup: 2, active: 3, recovery: 22, damage: 120, hitstun: 0, blockstun: 0, push: 0, guard: 'throw', hitstop: 14, hitbox: { x: 6, y: 10, w: 26, h: 40 }, throw: true, backThrow: true, knockdown: true, shake: 4 },
+  throw: { name: '잡기', limb: 'grab', startup: 2, active: 3, recovery: 22, damage: 120, hitstun: 0, blockstun: 0, push: 0, guard: 'throw', hitstop: 14, hitbox: { x: 6, y: 10, w: 26, h: 40 }, throw: true, knockdown: true, shake: 4 },
+  throwB: { name: '뒤잡기', limb: 'grab', startup: 2, active: 3, recovery: 22, damage: 120, hitstun: 0, blockstun: 0, push: 0, guard: 'throw', hitstop: 14, hitbox: { x: 6, y: 10, w: 26, h: 40 }, throw: true, backThrow: true, knockdown: true, shake: 4 },
 
   // ---------------- 모모 (고양이) ----------------
   momoClaw: { name: '냥냥 발톱', limb: 'claw', total: 38, moveX: [[3, 16, 6]],

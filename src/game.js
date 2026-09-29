@@ -169,6 +169,7 @@ export class Game {
     }
     a.update(inputs[0]);
     b.update(inputs[1]);
+    this.updateThrows();
     this.separate();
 
     const hits = [];
@@ -190,13 +191,69 @@ export class Game {
     for (const [f, o] of [[a, b], [b, a]]) {
       if (f.grounded && (f.actionable || f.state === 'landing') && f.x !== o.x) f.facing = o.x > f.x ? 1 : -1;
       for (const e of f.events) {
-        if (typeof e === 'string') { if (e !== 'land') sfx(e); }
+        if (e === 'thud') this.thud(f);
+        else if (typeof e === 'string') { if (e !== 'land') sfx(e); }
         else if (e.type === 'projectile') this.spawnProjectile(f, e.data);
         else if (e.type === 'super') this.startSuper(f, e.name);
       }
       f.events.length = 0;
     }
     this.trackAdvantage();
+  }
+
+  // ---------- 잡기: 붙잡기 → 들어 올리기 → 던지기 → 바닥에 쿵 ----------
+  startThrow(att, def, hit) {
+    att.setState('throwing');
+    att.move = null;
+    att.throwData = { def, hit, released: false };
+    def.setState('thrown');
+    def.move = null; def.vx = 0; def.vy = 0; def.pushVx = 0; def.throwAngle = 0;
+    sfx('grab');
+  }
+
+  updateThrows() {
+    for (const att of this.p) {
+      if (att.state !== 'throwing' || !att.throwData || att.throwData.released) continue;
+      const { def, hit } = att.throwData;
+      const t = att.stateFrame, f = att.facing;
+      const hold = C.THROW_HOLD, swing = C.THROW_SWING;
+      if (t < hold) { // 붙잡아서 살짝 들어 올림
+        const k = t / hold;
+        def.x = att.x + f * 22;
+        def.y = 2 + k * 10 + (t % 4 < 2 ? 1 : 0);
+        def.throwAngle = -f * k * 0.25;
+      } else if (t < hold + swing) { // 크게 휘두름
+        const k = (t - hold) / swing;
+        if (hit.backThrow) { // 머리 위로 넘겨서 등 뒤로
+          const a = k * Math.PI;
+          def.x = att.x + f * 22 * Math.cos(a);
+          def.y = 12 + 38 * Math.sin(a);
+          def.throwAngle = f * a;
+        } else { // 번쩍 들었다가 앞으로
+          def.x = att.x + f * (22 + 8 * k);
+          def.y = 12 + 30 * Math.sin(k * Math.PI * 0.9);
+          def.throwAngle = -f * (0.25 + k * 1.3);
+        }
+      } else { // 던짐! 여기서 대미지
+        att.throwData.released = true;
+        def.throwAngle = 0;
+        def.setState('idle');
+        const r = def.takeHit(att.x, f, hit, false);
+        att.meter = Math.min(C.METER_MAX, att.meter + hit.damage * 0.7);
+        this.hitstop = Math.max(this.hitstop, r === 'ko' ? 45 : 6);
+        this.shake = Math.max(this.shake, 4);
+        this.effects.push({ type: 'hit', x: def.x, y: def.y + 30, t: 0, big: true, dir: Math.sign(def.x - att.x) || f });
+        sfx(r === 'ko' ? 'ko' : 'throw');
+        this.advTrack = null;
+      }
+    }
+  }
+
+  // 쓰러질 때 바닥에 쿵
+  thud(f) {
+    this.shake = Math.max(this.shake, 4);
+    this.effects.push({ type: 'dust', x: f.x, y: 0, t: 0 });
+    sfx('thud');
   }
 
   startSuper(f, name) {
@@ -249,6 +306,10 @@ export class Game {
   projRect(p) { return { x: p.x - p.w / 2, y: p.y, w: p.w, h: p.h }; }
 
   applyHit({ owner, def, hit, attX, attFacing, hr, dr, last = true }) {
+    if (hit.throw) { // 동시에 잡으면 먼저 잡은 쪽만
+      if (owner.state !== 'thrown' && def.state !== 'throwing') this.startThrow(owner, def, hit);
+      return;
+    }
     const blocked = def.canBlock(attX, hit);
     const r = def.takeHit(attX, attFacing, hit, blocked, last);
     if (!owner.move?.super) owner.meter = Math.min(C.METER_MAX, owner.meter + hit.damage * (blocked ? 0.35 : 0.7));
@@ -290,7 +351,8 @@ export class Game {
       const ra = a.hurtRect(), rb = b.hurtRect();
       const vert = ra.y < rb.y + rb.h && rb.y < ra.y + ra.h;
       const dx = b.x - a.x;
-      if (vert && Math.abs(dx) < BODY.pushW && !(a.state === 'ko' || b.state === 'ko')) {
+      const skip = ['ko', 'throwing', 'thrown'];
+      if (vert && Math.abs(dx) < BODY.pushW && !skip.includes(a.state) && !skip.includes(b.state)) {
         const push = (BODY.pushW - Math.abs(dx)) / 2;
         const s = Math.sign(dx) || a.facing;
         a.x -= s * push; b.x += s * push;

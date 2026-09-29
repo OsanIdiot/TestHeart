@@ -51,7 +51,9 @@ export function sfx(name) {
     case 'round': tone('square', 660, 660, 0.12, 0.1); tone('square', 880, 880, 0.2, 0.1, 0.13); break;
     case 'fight': tone('sawtooth', 440, 880, 0.25, 0.12); break;
     case 'special': tone('triangle', 500, 1000, 0.12, 0.1); break;
-    case 'throw': tone('square', 200, 80, 0.2, 0.15); burst(500, 0.2, 0.35); break;
+    case 'grab': tone('triangle', 300, 500, 0.08, 0.12); burst(3000, 0.05, 0.1); break;
+    case 'throw': burst(1200, 0.15, 0.2); tone('sine', 700, 200, 0.18, 0.1); break;
+    case 'thud': tone('sine', 110, 40, 0.22, 0.35); burst(300, 0.18, 0.4); break;
     case 'super':
       tone('sawtooth', 220, 880, 0.35, 0.12);
       tone('square', 880, 880, 0.12, 0.08, 0.3);

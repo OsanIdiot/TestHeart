@@ -28,7 +28,8 @@ export class Renderer {
     if (sf) this.superBackdrop(game, sf);
 
     // 공격 중인 캐릭터를 앞에 그림
-    const order = [...game.p].sort((a, b) => (a.state === 'attack') - (b.state === 'attack'));
+    const rank = (f) => (f.state === 'throwing' ? 2 : f.state === 'attack' ? 1 : 0);
+    const order = [...game.p].sort((a, b) => rank(a) - rank(b));
     for (const f of order) this.fighter(f);
     for (const p of game.projectiles) this.projectile(p);
     for (const e of game.effects) this.effect(e);
@@ -92,6 +93,16 @@ export class Renderer {
 
   // ---------- 캐릭터 (임시 네모 버전) ----------
   fighter(f) {
+    if (f.state !== 'thrown' || !f.throwAngle) return this.fighterBody(f);
+    const ctx = this.ctx;
+    const cx = f.x, cy = G - f.y - 29;
+    ctx.save();
+    ctx.translate(cx, cy); ctx.rotate(f.throwAngle); ctx.translate(-cx, -cy);
+    this.fighterBody(f);
+    ctx.restore();
+  }
+
+  fighterBody(f) {
     const ctx = this.ctx;
     const x = Math.round(f.x);
     const base = G - Math.round(f.y);
@@ -124,7 +135,8 @@ export class Renderer {
 
     this.face(f, x, top, lying);
 
-    if (pose) this.limb(f, pose);
+    if (f.state === 'throwing') this.throwArms(f, x, top, h);
+    else if (pose) this.limb(f, pose);
     else if (!lying) this.hand(f, x + f.facing * (w / 2 - 1), top + h * 0.55);
 
     if (f.state === 'blockstun') {
@@ -173,7 +185,7 @@ export class Renderer {
     else if (mf < end) k = 1;
     else k = 0.25 + 0.55 * Math.max(0, 1 - (mf - end) / Math.max(1, m.total - end));
 
-    const kind = m.limb === 'kick' ? 'kick' : m.limb === 'claw' ? 'claw' : 'punch';
+    const kind = m.limb === 'kick' || m.limb === 'claw' || m.limb === 'grab' ? m.limb : 'punch';
     const ox = x + f.facing * (kind === 'kick' ? 4 : 6);
     const oy = kind === 'kick' ? base - Math.min(16, h * 0.3) : top + h * 0.4;
     const tx = x + f.facing * (hb.x + hb.w), ty = base - (hb.y + hb.h / 2);
@@ -197,6 +209,9 @@ export class Renderer {
       ctx.fillStyle = c.dark; this.round(-4, -4, 12, 8, 3);
       ctx.fillStyle = GLOVE; ctx.fillRect(6, -3, 2, 6);
       ctx.restore();
+    } else if (p.kind === 'grab') { // 두 손을 벌려 붙잡으려 함
+      this.hand(f, p.px, p.py - 5);
+      this.hand(f, p.px - f.facing * 3, p.py + 5);
     } else { // 장갑 주먹
       ctx.fillStyle = GLOVE;
       ctx.strokeStyle = c.dark;
@@ -213,12 +228,33 @@ export class Renderer {
         }
       }
     }
-    if (p.active && p.kind !== 'claw') { // 빠르게 휘두르는 느낌
+    if (p.active && p.kind !== 'claw' && p.kind !== 'grab') { // 빠르게 휘두르는 느낌
       ctx.strokeStyle = 'rgba(255,255,255,0.7)';
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(p.px - f.facing * 10, p.py - 6); ctx.lineTo(p.px - f.facing * 18, p.py - 6);
       ctx.moveTo(p.px - f.facing * 10, p.py + 6); ctx.lineTo(p.px - f.facing * 18, p.py + 6); ctx.stroke();
     }
+  }
+
+  // 잡은 상대를 두 손으로 들고 있음 → 던진 뒤엔 팔을 번쩍
+  throwArms(f, x, top, h) {
+    const ctx = this.ctx;
+    const d = f.throwData;
+    const ox = x + f.facing * 6, oy = top + h * 0.4;
+    let gx, gy;
+    if (d && !d.released) { gx = d.def.x - f.facing * 6; gy = G - d.def.y - 30; }
+    else { gx = x + f.facing * (d?.hit.backThrow ? -8 : 22); gy = top - 8; }
+    ctx.lineCap = 'round';
+    for (const [dy, width, color] of [[0, 7, f.char.dark], [0, 4.5, f.char.color]]) {
+      ctx.strokeStyle = color; ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy - 3 + dy); ctx.lineTo(gx, gy - 6);
+      ctx.moveTo(ox, oy + 4 + dy); ctx.lineTo(gx, gy + 6);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+    this.hand(f, gx, gy - 6);
+    this.hand(f, gx, gy + 6);
   }
 
   rollBall(f, x, base, white) {
@@ -253,8 +289,8 @@ export class Renderer {
 
   face(f, x, top, lying) {
     const ctx = this.ctx;
-    const hurt = ['hitstun', 'airhit', 'ko', 'down'].includes(f.state);
-    const squint = f.state === 'blockstun' || (f.state === 'attack' && !!f.activeHit());
+    const hurt = ['hitstun', 'airhit', 'ko', 'down', 'thrown'].includes(f.state);
+    const squint = f.state === 'blockstun' || f.state === 'throwing' || (f.state === 'attack' && !!f.activeHit());
     const cx = lying ? x - f.facing * 18 : x + f.facing * 4;
     const ey = top + (lying ? 4 : 12);
     ctx.fillStyle = INK;
@@ -307,6 +343,14 @@ export class Renderer {
     const ctx = this.ctx;
     const x = e.x, y = G - e.y;
     const k = e.t / 16;
+    if (e.type === 'dust') {
+      ctx.fillStyle = `rgba(240,220,190,${0.9 - k})`;
+      for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
+        const r = 4 + i * 2 + k * 6;
+        ctx.beginPath(); ctx.arc(x + s * (10 + i * 8 + k * 14), G - r * 0.6, r, 0, Math.PI * 2); ctx.fill();
+      }
+      return;
+    }
     if (e.type === 'block') {
       ctx.strokeStyle = `rgba(120,200,255,${1 - k})`;
       ctx.lineWidth = 2;

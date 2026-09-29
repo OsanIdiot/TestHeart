@@ -7,7 +7,7 @@ export const EMPTY_INPUT = {
 };
 
 const ACTIONABLE = new Set(['idle', 'walkF', 'walkB', 'crouch']);
-const INVULN = new Set(['down', 'getup', 'airhit', 'ko']);
+const INVULN = new Set(['down', 'getup', 'airhit', 'ko', 'throwing', 'thrown']);
 const STUNNED = new Set(['hitstun', 'blockstun']);
 const BUTTON_PRIORITY = ['HK', 'HP', 'LK', 'LP'];
 const HIST_LEN = 40;
@@ -60,14 +60,16 @@ export class Fighter {
   }
 
   matchMotion(name) {
-    const { seq, window, endOn } = MOTIONS[name];
+    const { variants, window, endOn } = MOTIONS[name];
     const hist = this.hist;
     if (endOn && !endOn.includes(hist[hist.length - 1])) return false;
-    let j = seq.length - 1;
-    for (let i = hist.length - 1; i >= Math.max(0, hist.length - window) && j >= 0; i--) {
-      if (hist[i] === seq[j]) j--;
-    }
-    return j < 0;
+    return variants.some((steps) => {
+      let j = steps.length - 1;
+      for (let i = hist.length - 1; i >= Math.max(0, hist.length - window) && j >= 0; i--) {
+        if (steps[j].includes(hist[i])) j--;
+      }
+      return j < 0;
+    });
   }
 
   // 같은 방향을 두 번 톡톡 (대시)
@@ -85,6 +87,13 @@ export class Fighter {
     const p = inp.pressed;
     const btn = BUTTON_PRIORITY.find((b) => p[b]);
     if (!btn) return null;
+    // 초필살기 쉬운 입력: 게이지 MAX + ↓↘→ + 강P·강K 동시
+    const h = inp.held;
+    const bothHeavy = (p.HP || p.HK) && h.HP && h.HK;
+    if (bothHeavy && this.meter >= C.METER_MAX && this.matchMotion('236')) {
+      const sup = this.char.specials.find((s) => s.super);
+      if (sup) return { special: sup };
+    }
     for (const sp of this.char.specials) {
       if (p[sp.btn] && this.matchMotion(sp.motion) && (!sp.super || this.meter >= C.METER_MAX)) {
         return { special: sp };
@@ -172,6 +181,8 @@ export class Fighter {
         break;
       case 'down': if (this.stateFrame >= C.DOWN_TIME) this.setState('getup'); break;
       case 'getup': if (this.stateFrame >= C.GETUP_TIME) this.setState('idle'); break;
+      case 'throwing': if (this.stateFrame >= C.THROW_TOTAL) this.setState('idle'); break;
+      case 'thrown': break; // 위치는 잡은 쪽이 정함 (game.js)
     }
 
     this.physics();
@@ -190,6 +201,7 @@ export class Fighter {
   }
 
   physics() {
+    if (this.state === 'thrown') return;
     if (this.y > 0) {
       this.vy -= C.GRAVITY;
       this.y += this.vy;
@@ -212,7 +224,8 @@ export class Fighter {
       this.landLag = this.move.landLag ?? C.LANDING_LAG;
       this.move = null; this.setState('landing');
     } else if (this.state === 'fall') { this.landLag = this.fallLag; this.setState('landing'); }
-    else if (this.state === 'airhit') this.setState('down');
+    else if (this.state === 'airhit') { this.setState('down'); this.events.push('thud'); }
+    else if (this.state === 'ko') this.events.push('thud');
   }
 
   startMove(key) {
@@ -311,7 +324,6 @@ export class Fighter {
   }
 
   takeHit(attX, attFacing, hit, blocked, last = true) {
-    if (hit.backThrow) this.x = attX - attFacing * 22; // 뒤로 던지기: 반대편으로 넘김
     const dir = Math.sign(this.x - attX) || attFacing;
     if (blocked) {
       this.setState('blockstun');
@@ -335,7 +347,7 @@ export class Fighter {
     }
     if (hit.throw) {
       this.setState('airhit');
-      this.vy = 6; this.vx = dir * 3; this.y = 1;
+      this.vy = 5; this.vx = dir * 3.2; this.y = Math.max(this.y, 1);
     } else if (this.y > 0 || (hit.launch && last)) {
       this.setState('airhit');
       this.vy = hit.launch ? 7 : 4; this.vx = dir * 1.8; this.y = Math.max(this.y, 1);

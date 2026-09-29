@@ -13,6 +13,8 @@ export function renderMoveList(el, touch) {
       <span>잡기: 아주 가까이서 <em>강P</em> &nbsp;·&nbsp; 뒤잡기: 가까이서 <em>← + 강P</em> (가드 불가)</span>
       <span>대시: →→ &nbsp; 백대시: ←← (시작할 때 무적)</span>
       <span>SP 게이지: 때리거나 맞으면 참. <em>MAX!</em>가 되면 초필살기</span>
+      <span>초필살기 쉬운 입력: 게이지 MAX일 때 <em>↓↘→ + 강P·강K 동시</em>${touch ? ' (강P와 강K 사이를 누르면 둘 다 눌림)' : ''}</span>
+      <span>커맨드 가운데 대각선은 생략해도 됨 (↓→ + 강P = ↓↘→ + 강P)</span>
       <span>캔슬: 약공격 → 강공격 → 필살기 순서로 끊어서 이어가기</span>
     </div>`;
   const chars = CHARACTERS.map((c) => {

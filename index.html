@@ -1,0 +1,107 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Project Heart</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<style>
+  :root { color-scheme: dark; --bg: #2b1d2a; --panel: #3a2838; --text: #f6e9f1; --muted: #c9aabd; --accent: #ff8fb3; --key: #5a3f55;
+          --pink: #ff8fb3; --pink-d: #e0567f; --sky: #7ec8ff; --sky-d: #3f8fd6; }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); }
+  body { margin: 0; font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding-inline: 16px; padding-block: 16px; }
+  canvas { display: block; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; image-rendering: pixelated; border-radius: 8px; background: #000; touch-action: none; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; }
+  section { background: var(--panel); border-radius: 8px; padding: 12px 14px; font-size: 14px; line-height: 1.7; }
+  h2 { margin: 0 0 6px; font-size: 15px; color: var(--accent); }
+  kbd { display: inline-block; min-width: 22px; padding: 0 6px; border-radius: 4px; background: var(--key); text-align: center; font-family: inherit; font-size: 13px; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  /* ---------- 스마트폰 터치 조작 ---------- */
+  #pad { display: none; }
+  html.touch, html.touch body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  html.touch body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  html.touch main { height: 100%; max-width: none; display: flex; flex-direction: column; gap: 10px; padding-block: 10px; }
+  html.touch .grid { display: none; }
+  html.touch #pad { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 8px; touch-action: none; }
+
+  #stick { position: relative; width: 140px; height: 140px; flex: none; border-radius: 50%;
+           background: radial-gradient(circle, #4a3346 0 55%, #3a2838 56%); border: 2px solid #5a3f55; touch-action: none; }
+  #stick::before { content: ""; position: absolute; inset: 18px; border-radius: 50%; border: 1px dashed rgba(255,255,255,0.15); }
+  #knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
+          background: var(--pink); box-shadow: inset 0 -5px 0 var(--pink-d); pointer-events: none; }
+
+  .tools { display: flex; flex-direction: column; gap: 8px; }
+  .tools button { width: 44px; height: 32px; border: 0; border-radius: 8px; background: var(--key); color: var(--text);
+                  font: bold 13px/1 inherit; font-family: inherit; }
+  .tools button:focus-visible, .btns button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .btns { display: grid; grid-template-columns: repeat(2, 66px); gap: 10px; flex: none; }
+  .btns button { width: 66px; height: 66px; border-radius: 50%; border: 0; color: #fff; font: 900 15px/1.1 inherit; font-family: inherit;
+                 touch-action: none; transition: transform 40ms; }
+  .btns button small { display: block; font-size: 10px; font-weight: 700; opacity: 0.85; }
+  .btns [data-btn="LP"], .btns [data-btn="HP"] { background: var(--pink); box-shadow: inset 0 -6px 0 var(--pink-d); }
+  .btns [data-btn="LK"], .btns [data-btn="HK"] { background: var(--sky); box-shadow: inset 0 -6px 0 var(--sky-d); }
+  .btns button.on { transform: scale(0.9); box-shadow: inset 0 0 0 3px rgba(255,255,255,0.6); }
+
+  /* 가로 화면: 게임을 크게, 조작 버튼은 위에 반투명하게 */
+  @media (orientation: landscape) {
+    html.touch main { position: relative; padding-block: 6px; }
+    html.touch canvas { width: auto; height: 100%; margin: 0 auto; }
+    html.touch #pad { position: absolute; inset: auto 12px 10px 12px; align-items: flex-end; pointer-events: none; }
+    html.touch #pad > * { pointer-events: auto; opacity: 0.6; }
+    html.touch #stick { width: 120px; height: 120px; }
+    html.touch .tools { flex-direction: row; align-self: flex-start; margin-top: -4px; }
+    html.touch .btns { grid-template-columns: repeat(2, 58px); }
+    html.touch .btns button { width: 58px; height: 58px; }
+  }
+</style>
+
+<main>
+  <canvas id="game"></canvas>
+
+  <div id="pad">
+    <div id="stick" aria-label="이동 조이스틱"><div id="knob"></div></div>
+    <div class="tools">
+      <button type="button" data-tool="pause" aria-label="일시정지">II</button>
+      <button type="button" data-tool="boxes" aria-label="판정 박스 보기">판정</button>
+      <button type="button" data-tool="home" aria-label="타이틀로">⌂</button>
+    </div>
+    <div class="btns">
+      <button type="button" data-btn="LP">약P<small>펀치</small></button>
+      <button type="button" data-btn="HP">강P<small>펀치</small></button>
+      <button type="button" data-btn="LK">약K<small>킥</small></button>
+      <button type="button" data-btn="HK">강K<small>킥</small></button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <section>
+      <h2>1P 모모 (분홍)</h2>
+      이동 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><br>
+      약펀치 <kbd>F</kbd> 강펀치 <kbd>G</kbd><br>
+      약킥 <kbd>V</kbd> 강킥 <kbd>B</kbd>
+    </section>
+    <section>
+      <h2>2P 루루 (하늘)</h2>
+      이동 <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd><br>
+      약펀치 <kbd>K</kbd> 강펀치 <kbd>L</kbd> (또는 숫자패드 <kbd>4</kbd><kbd>5</kbd>)<br>
+      약킥 <kbd>,</kbd> 강킥 <kbd>.</kbd> (또는 숫자패드 <kbd>1</kbd><kbd>2</kbd>)
+    </section>
+    <section>
+      <h2>기본 공략</h2>
+      뒤로 누르면 <b>가드</b>, 뒤+아래면 <b>앉아 가드</b><br>
+      앉아 강킥(다리 후리기)은 <b>앉아서만</b> 막힘<br>
+      점프 공격은 <b>서서만</b> 막힘<br>
+      약공격 맞히고 바로 강공격 → <b>콤보</b><br>
+      앉아 강펀치 = 점프 공격 막는 <b>대공기</b>
+    </section>
+    <section>
+      <h2>기타</h2>
+      <kbd>H</kbd> 판정 박스 보기 (초록=맞는 곳, 빨강=때리는 곳)<br>
+      <kbd>Esc</kbd> 일시정지 · 게임패드 2개까지 지원<br>
+      <span class="muted">트레이닝: 숫자 <kbd>1</kbd>~<kbd>5</kbd>로 허수아비 행동 변경, <kbd>0</kbd> 위치 초기화</span><br>
+      <span class="muted">수치 조정은 src/data.js 한 파일에서</span>
+    </section>
+  </div>
+</main>
+<script type="module" src="src/main.js"></script>

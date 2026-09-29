@@ -1,14 +1,19 @@
-import { CONFIG as C, BODY, MOVES } from './data.js';
+import { CONFIG as C, BODY, MOVES, MOTIONS } from './data.js';
 
+const NO_BUTTONS = { LP: false, HP: false, LK: false, HK: false, SP: false };
 export const EMPTY_INPUT = {
   left: false, right: false, up: false, down: false,
-  held: { LP: false, HP: false, LK: false, HK: false },
-  pressed: { LP: false, HP: false, LK: false, HK: false },
+  held: NO_BUTTONS, pressed: NO_BUTTONS,
 };
 
 const ACTIONABLE = new Set(['idle', 'walkF', 'walkB', 'crouch']);
 const INVULN = new Set(['down', 'getup', 'airhit', 'ko']);
+const STUNNED = new Set(['hitstun', 'blockstun']);
 const BUTTON_PRIORITY = ['HK', 'HP', 'LK', 'LP'];
+const HIST_LEN = 40;
+
+// 폰의 "필살" 버튼 + 방향 → 어떤 커맨드로 볼지
+const SP_DIR = { '중립': '236', '앞': '623', '뒤': '214', '아래': '236236' };
 
 export class Fighter {
   constructor(index, char) {
@@ -22,11 +27,13 @@ export class Fighter {
     this.x = x; this.y = 0; this.vx = 0; this.vy = 0;
     this.facing = facing;
     this.hp = C.MAX_HP; this.redHp = C.MAX_HP; this.redDelay = 0;
+    this.meter = 0;
     this.move = null; this.moveKey = null; this.moveFrame = 0;
-    this.moveHit = false; this.contact = false; this.airMove = false;
-    this.stun = 0; this.pushVx = 0; this.combo = 0; this.flash = 0;
-    this.buffer = null; this.inp = EMPTY_INPUT;
+    this.hitDone = new Set(); this.contact = false; this.airMove = false;
+    this.stun = 0; this.pushVx = 0; this.combo = 0; this.comboDamage = 0; this.flash = 0;
+    this.buffer = null; this.inp = EMPTY_INPUT; this.hist = [];
     this.airAttacked = false; this.lowGuard = false; this.jumpDir = 0;
+    this.projectileAlive = false;
     this.events = [];
     this.setState('idle');
   }
@@ -35,39 +42,118 @@ export class Fighter {
 
   get grounded() { return this.y <= 0; }
   get actionable() { return ACTIONABLE.has(this.state); }
-  get invuln() { return INVULN.has(this.state); }
+  get stunned() { return STUNNED.has(this.state); }
+  get invuln() {
+    if (INVULN.has(this.state)) return true;
+    if (this.state === 'backdash' && this.stateFrame < C.BACKDASH_INVULN) return true;
+    const iv = this.state === 'attack' && this.move.invuln;
+    return !!iv && this.moveFrame >= iv[0] && this.moveFrame < iv[1];
+  }
   get crouching() {
     return this.state === 'crouch'
       || (this.state === 'attack' && this.moveKey[0] === 'c')
       || (this.state === 'blockstun' && this.lowGuard);
   }
 
+  // 방향을 숫자패드 번호로 (앞 = 6, 캐릭터가 보는 방향 기준)
+  dirNumber(inp) {
+    const h = ((inp.right ? 1 : 0) - (inp.left ? 1 : 0)) * this.facing;
+    const v = inp.up ? 3 : inp.down ? -3 : 0;
+    return 5 + h + v;
+  }
+
+  matchMotion(name) {
+    const { seq, window, endOn } = MOTIONS[name];
+    const hist = this.hist;
+    if (endOn && !endOn.includes(hist[hist.length - 1])) return false;
+    let j = seq.length - 1;
+    for (let i = hist.length - 1; i >= Math.max(0, hist.length - window) && j >= 0; i--) {
+      if (hist[i] === seq[j]) j--;
+    }
+    return j < 0;
+  }
+
+  // 같은 방향을 두 번 톡톡 (대시)
+  doubleTap(d) {
+    const h = this.hist, n = h.length;
+    if (n < 3 || h[n - 1] !== d || h[n - 2] !== 5) return false;
+    let i = n - 2;
+    while (i >= 0 && h[i] === 5 && n - i < 12) i--;
+    return i >= 0 && h[i] === d && n - i < 12;
+  }
+
+  // 버튼이 눌린 순간, 커맨드까지 보고 무슨 기술인지 결정
+  resolvePress(inp) {
+    const p = inp.pressed;
+    if (p.SP) {
+      const d = this.dirNumber(inp);
+      const want = d === 2 || d === 1 || d === 3 ? '아래' : d === 6 || d === 9 ? '앞' : d === 4 || d === 7 ? '뒤' : '중립';
+      const sp = this.char.specials.find((s) => s.motion === SP_DIR[want]);
+      if (sp && (!sp.super || this.meter >= C.METER_MAX)) return { special: sp, strength: 'H' };
+      if (sp?.super) { // 게이지가 모자라면 기본 필살기로
+        return { special: this.char.specials.find((s) => s.motion === '236'), strength: 'H' };
+      }
+    }
+    const P = p.LP || p.HP, K = p.LK || p.HK;
+    if (!P && !K) return null;
+    const strength = p.HP || p.HK ? 'H' : 'L';
+    for (const sp of this.char.specials) {
+      if ((sp.btn === 'P' ? P : K) && this.matchMotion(sp.motion) && (!sp.super || this.meter >= C.METER_MAX)) {
+        return { special: sp, strength };
+      }
+    }
+    const h = inp.held;
+    if ((p.LP && h.LK) || (p.LK && h.LP)) return { btn: 'throw' };
+    return { btn: BUTTON_PRIORITY.find((b) => p[b]) };
+  }
+
   // 선입력 버퍼: 조금 일찍 누른 버튼을 몇 프레임 기억
   handleBuffer(inp, tick) {
     this.inp = inp;
+    this.hist.push(this.dirNumber(inp));
+    if (this.hist.length > HIST_LEN) this.hist.shift();
     if (this.buffer && tick && --this.buffer.t <= 0) this.buffer = null;
-    for (const b of BUTTON_PRIORITY) {
-      if (inp.pressed[b]) { this.buffer = { btn: b, t: C.INPUT_BUFFER }; break; }
+    const r = this.resolvePress(inp);
+    if (r) this.buffer = { ...r, t: C.INPUT_BUFFER };
+  }
+
+  moveKeyFor(b) {
+    if (b.special) {
+      const base = b.special.move;
+      return MOVES[base + b.strength] ? base + b.strength : MOVES[base + 'L'] ? base + 'L' : base;
     }
+    if (b.btn === 'throw') return 'throw';
+    return (this.y > 0 ? 'j' : this.inp.down ? 'c' : 's') + b.btn;
   }
 
   update(inp) {
     this.handleBuffer(inp, true);
     this.stateFrame++;
     if (this.flash > 0) this.flash--;
-    if (this.actionable) this.combo = 0;
+    if (this.actionable) { this.combo = 0; this.comboDamage = 0; }
 
     const h = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
     const rel = h * this.facing; // 1 = 앞, -1 = 뒤
 
     switch (this.state) {
       case 'idle': case 'walkF': case 'walkB': case 'crouch':
-        if (this.buffer) { this.startMove((inp.down ? 'c' : 's') + this.buffer.btn); break; }
+        if (this.buffer) { this.startFromBuffer(); break; }
+        if (this.doubleTap(6)) { this.setState('dash'); break; }
+        if (this.doubleTap(4)) { this.setState('backdash'); break; }
         if (inp.up) { this.jumpDir = h; this.vx = 0; this.setState('jumpsquat'); break; }
         if (inp.down) { if (this.state !== 'crouch') this.setState('crouch'); this.vx = 0; break; }
         if (rel > 0) { if (this.state !== 'walkF') this.setState('walkF'); this.vx = C.WALK_FWD * this.facing; }
         else if (rel < 0) { if (this.state !== 'walkB') this.setState('walkB'); this.vx = -C.WALK_BACK * this.facing; }
         else { if (this.state !== 'idle') this.setState('idle'); this.vx = 0; }
+        break;
+      case 'dash':
+        this.vx = this.stateFrame < C.DASH_TIME - 4 ? C.DASH_VX * this.facing : 0;
+        if (this.buffer && this.stateFrame > 6) { this.startFromBuffer(); break; }
+        if (this.stateFrame >= C.DASH_TIME) this.setState('idle');
+        break;
+      case 'backdash':
+        this.vx = this.stateFrame < C.BACKDASH_TIME - 6 ? -C.BACKDASH_VX * this.facing : 0;
+        if (this.stateFrame >= C.BACKDASH_TIME) this.setState('idle');
         break;
       case 'jumpsquat':
         if (this.stateFrame >= C.JUMP_SQUAT) {
@@ -78,10 +164,14 @@ export class Fighter {
         }
         break;
       case 'air':
-        if (this.buffer && !this.airAttacked) { this.airAttacked = true; this.startMove('j' + this.buffer.btn); }
+        if (this.buffer && !this.airAttacked && !this.buffer.special && this.buffer.btn !== 'throw') {
+          this.airAttacked = true;
+          this.startMove(this.moveKeyFor(this.buffer));
+        }
         break;
       case 'attack': this.updateAttack(); break;
-      case 'landing': if (this.stateFrame >= C.LANDING_LAG) this.setState('idle'); break;
+      case 'fall': break; // 공중 필살기 끝, 착지까지 아무것도 못 함
+      case 'landing': if (this.stateFrame >= this.landLag) this.setState('idle'); break;
       case 'hitstun':
         if (--this.stun <= 0) this.setState('idle');
         break;
@@ -94,6 +184,17 @@ export class Fighter {
 
     this.physics();
     this.updateRedHp();
+  }
+
+  startFromBuffer() {
+    const b = this.buffer;
+    const key = this.moveKeyFor(b);
+    // 당근은 화면에 하나만
+    if (MOVES[key].projectile && this.projectileAlive && !MOVES[key].super) {
+      this.buffer = null;
+      return;
+    }
+    this.startMove(key);
   }
 
   physics() {
@@ -113,8 +214,12 @@ export class Fighter {
   land() {
     this.vx = 0;
     this.events.push('land');
+    this.landLag = C.LANDING_LAG;
     if (this.state === 'air') this.setState('landing');
-    else if (this.state === 'attack' && this.airMove) { this.move = null; this.setState('landing'); }
+    else if (this.state === 'attack' && (this.airMove || this.move.jump)) {
+      this.landLag = this.move.landLag ?? C.LANDING_LAG;
+      this.move = null; this.setState('landing');
+    } else if (this.state === 'fall') { this.landLag = this.fallLag; this.setState('landing'); }
     else if (this.state === 'airhit') this.setState('down');
   }
 
@@ -123,71 +228,110 @@ export class Fighter {
     if (!m) return;
     this.buffer = null;
     this.move = m; this.moveKey = key; this.moveFrame = 0;
-    this.moveHit = false; this.contact = false;
+    this.hitDone = new Set(); this.contact = false;
     this.airMove = key[0] === 'j';
     if (!this.airMove) this.vx = 0;
     this.setState('attack');
-    this.events.push(key[1] === 'H' ? 'swingH' : 'swingL');
+    if (m.super) { this.meter -= C.METER_MAX; this.events.push({ type: 'super', name: m.name }); }
+    else if (!/^[scj][LH][PK]$|^throw$/.test(key)) { this.meter = Math.min(C.METER_MAX, this.meter + 30); this.events.push('special'); }
+    this.events.push(key.includes('H') || m.super ? 'swingH' : 'swingL');
+    this.moveTick();
+  }
+
+  // 기술 진행 중 매 프레임: 이동, 점프, 당근 발사
+  moveTick() {
+    const m = this.move, f = this.moveFrame;
+    if (m.moveX) {
+      const seg = m.moveX.find(([a, b]) => f >= a && f < b);
+      if (this.grounded) this.vx = seg ? seg[2] * this.facing : 0;
+    }
+    if (m.jump && f === m.jump.frame) {
+      this.vy = m.jump.vy; this.vx = m.jump.vx * this.facing; this.y = 0.01;
+    }
+    if (m.projectile && f === m.projectile.frame) this.events.push({ type: 'projectile', data: m.projectile });
   }
 
   updateAttack() {
     this.moveFrame++;
     const m = this.move;
-    // 캔슬: 약공격을 맞혔으면 다음 공격으로 끊어서 이어가기 (콤보)
-    if (this.contact && this.buffer && !this.airMove && m.cancel
-        && m.cancel.includes(this.buffer.btn)
-        && this.moveFrame < m.startup + m.active + C.CANCEL_WINDOW) {
-      this.startMove((this.inp.down ? 'c' : 's') + this.buffer.btn);
-      return;
+    // 캔슬: 공격을 맞혔으면 다음 기술로 끊어서 이어가기 (콤보)
+    const b = this.buffer;
+    if (this.contact && b && m.cancel && this.moveFrame < this.lastHitEnd() + C.CANCEL_WINDOW) {
+      const okNormal = m.cancel === 'normal' && !b.special && b.btn !== 'throw';
+      if (b.special || okNormal) {
+        const key = this.moveKeyFor(b);
+        if (key !== this.moveKey || m.cancel === 'normal') { this.startMove(key); return; }
+      }
     }
-    if (this.moveFrame >= m.startup + m.active + m.recovery) {
+    this.moveTick();
+    if (this.moveFrame >= m.total) {
       this.move = null;
-      if (this.airMove && this.y > 0) this.setState('air');
-      else this.setState(this.inp.down ? 'crouch' : 'idle');
+      if (this.y > 0) {
+        if (this.airMove) this.setState('air');
+        else { this.fallLag = m.landLag ?? C.LANDING_LAG; this.setState('fall'); }
+      } else this.setState(this.inp.down ? 'crouch' : 'idle');
     }
   }
 
-  isActive() {
-    const m = this.move;
-    return this.state === 'attack' && m && !this.moveHit
-      && this.moveFrame >= m.startup && this.moveFrame < m.startup + m.active;
+  lastHitEnd() {
+    const hits = this.move.hits;
+    return hits.length ? hits[hits.length - 1].end : 0;
   }
 
-  hitRect() {
-    const hb = this.move.hitbox;
+  // 지금 때리는 중인 판정 (없으면 null)
+  activeHit() {
+    if (this.state !== 'attack') return null;
+    const hits = this.move.hits;
+    for (let i = 0; i < hits.length; i++) {
+      const h = hits[i];
+      if (!this.hitDone.has(i) && this.moveFrame >= h.start && this.moveFrame < h.end) return { hit: h, index: i };
+    }
+    return null;
+  }
+
+  hitRect(hb) {
     const x = this.facing > 0 ? this.x + hb.x : this.x - hb.x - hb.w;
     return { x, y: this.y + hb.y, w: hb.w, h: hb.h };
   }
 
   hurtRect() {
     let h = BODY.standH, yo = 0;
-    if (this.crouching) h = BODY.crouchH;
+    if (this.state === 'attack' && this.move.hurtH) h = this.move.hurtH;
+    else if (this.crouching) h = BODY.crouchH;
     else if (this.y > 0) { h = BODY.airH; yo = 6; }
     return { x: this.x - BODY.w / 2, y: this.y + yo, w: BODY.w, h };
   }
 
   // 가드 판정: 상대 반대 방향을 누르고 있으면 막음
-  canBlock(att, m) {
+  canBlock(attX, hit) {
+    if (hit.guard === 'throw') return false;
     if (!(this.actionable || this.state === 'blockstun') || this.y > 0) return false;
     const h = (this.inp.right ? 1 : 0) - (this.inp.left ? 1 : 0);
-    const away = att.x > this.x ? -1 : 1;
+    const away = attX > this.x ? -1 : 1;
     if (h !== away) return false;
-    if (m.guard === 'low' && !this.inp.down) return false;
-    if (m.guard === 'high' && this.inp.down) return false;
+    if (hit.guard === 'low' && !this.inp.down) return false;
+    if (hit.guard === 'high' && this.inp.down) return false;
     return true;
   }
 
-  takeHit(att, m, blocked) {
-    const dir = Math.sign(this.x - att.x) || att.facing;
+  canBeThrown() {
+    return this.grounded && !this.stunned && !this.invuln;
+  }
+
+  takeHit(attX, attFacing, hit, blocked, last = true) {
+    const dir = Math.sign(this.x - attX) || attFacing;
     if (blocked) {
       this.setState('blockstun');
-      this.stun = m.blockstun; this.lowGuard = this.inp.down;
-      this.pushVx = dir * m.push; this.vx = 0;
+      this.stun = hit.blockstun; this.lowGuard = this.inp.down;
+      this.pushVx = dir * hit.push; this.vx = 0;
       return 'block';
     }
     this.combo++;
     const scale = Math.max(C.MIN_SCALING, 1 - C.COMBO_SCALING * (this.combo - 1));
-    this.hp = Math.max(this.noKo ? 1 : 0, this.hp - Math.round(m.damage * scale));
+    const dmg = Math.round(hit.damage * scale);
+    this.hp = Math.max(this.noKo ? 1 : 0, this.hp - dmg);
+    this.comboDamage += dmg;
+    this.meter = Math.min(C.METER_MAX, this.meter + dmg * 0.5);
     this.redDelay = 30;
     this.flash = 8;
     this.move = null;
@@ -196,15 +340,18 @@ export class Fighter {
       this.vy = 6; this.vx = dir * 2.5; this.y = Math.max(this.y, 1);
       return 'ko';
     }
-    if (this.y > 0 || m.launch) {
+    if (hit.throw) {
       this.setState('airhit');
-      this.vy = m.launch ? 7 : 4; this.vx = dir * 1.8; this.y = Math.max(this.y, 1);
-    } else if (m.knockdown) {
+      this.vy = 6; this.vx = dir * 3; this.y = 1;
+    } else if (this.y > 0 || (hit.launch && last)) {
+      this.setState('airhit');
+      this.vy = hit.launch ? 7 : 4; this.vx = dir * 1.8; this.y = Math.max(this.y, 1);
+    } else if (hit.knockdown) {
       this.setState('airhit');
       this.vy = 3; this.vx = dir * 1.5; this.y = 1;
     } else {
       this.setState('hitstun');
-      this.stun = m.hitstun; this.pushVx = dir * m.push; this.vx = 0;
+      this.stun = hit.hitstun; this.pushVx = dir * hit.push * C.HIT_PUSH_SCALE; this.vx = 0;
     }
     return 'hit';
   }

@@ -4,6 +4,8 @@ import { MODES, DUMMY_MODES } from './game.js';
 const W = 480, H = 270, SCALE = 2;
 const G = C.GROUND_Y;
 const FONT = '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
+const INK = '#3a2a3a';
+const GLOVE = '#fff6fb';
 
 export class Renderer {
   constructor(canvas) {
@@ -22,14 +24,22 @@ export class Renderer {
 
     if (game.mode === 'title') { ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0); return this.title(game); }
 
+    const sf = game.superFreeze;
+    if (sf) this.superBackdrop(game, sf);
+
     // 공격 중인 캐릭터를 앞에 그림
     const order = [...game.p].sort((a, b) => (a.state === 'attack') - (b.state === 'attack'));
     for (const f of order) this.fighter(f);
+    for (const p of game.projectiles) this.projectile(p);
     for (const e of game.effects) this.effect(e);
-    if (game.debug) for (const f of game.p) this.hitboxes(f);
+    if (game.debug) {
+      for (const f of game.p) this.hitboxes(f);
+      for (const p of game.projectiles) this.projBox(game.projRect(p));
+    }
 
     ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
     this.hud(game);
+    if (sf) this.superName(game, sf);
     this.banner(game);
     if (game.paused) this.pause(game.touch);
   }
@@ -63,15 +73,36 @@ export class Renderer {
     ctx.fillRect(-10, G, W + 20, 2);
   }
 
+  superBackdrop(game, sf) {
+    const ctx = this.ctx;
+    const f = game.p[sf.player];
+    ctx.fillStyle = 'rgba(40,12,50,0.62)';
+    ctx.fillRect(-10, -10, W + 20, H + 20);
+    const age = game.frame - sf.frame;
+    const cy = G - f.y - 30;
+    for (let i = 0; i < 12; i++) { // 뒤로 퍼지는 빛줄기
+      const a = (i / 12) * Math.PI * 2 + age * 0.03;
+      ctx.strokeStyle = i % 2 ? 'rgba(255,228,92,0.45)' : 'rgba(255,143,179,0.45)';
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(f.x, cy); ctx.lineTo(f.x + Math.cos(a) * 300, cy + Math.sin(a) * 300); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.arc(f.x, cy, 26 + Math.sin(age / 3) * 3, 0, Math.PI * 2); ctx.fill();
+  }
+
   // ---------- 캐릭터 (임시 네모 버전) ----------
   fighter(f) {
     const ctx = this.ctx;
     const x = Math.round(f.x);
     const base = G - Math.round(f.y);
     const c = f.char;
+    const m = f.state === 'attack' ? f.move : null;
 
     ctx.fillStyle = 'rgba(80,40,60,0.18)';
     ctx.beginPath(); ctx.ellipse(x, G + 1, 16 - Math.min(8, f.y / 10), 3, 0, 0, Math.PI * 2); ctx.fill();
+
+    const white = f.flash > 0 && f.flash % 4 < 2;
+    if (m && m.limb === 'body') return this.rollBall(f, x, base, white);
 
     const lying = f.state === 'down' || (f.state === 'ko' && f.y <= 0);
     let w = BODY.w, h, top;
@@ -80,8 +111,10 @@ export class Renderer {
     else if (f.state === 'jumpsquat' || f.state === 'landing') { h = BODY.standH - 8; w = BODY.w + 4; top = base - h; }
     else { const r = f.hurtRect(); h = r.h; top = G - r.y - r.h; }
     const left = x - w / 2;
-    const white = f.flash > 0 && f.flash % 4 < 2;
 
+    const pose = m ? this.limbPose(f, x, base, top, h) : null;
+
+    if (!lying) this.feet(f, x, base, pose);
     if (!lying) this.ears(f, x, top, white);
 
     ctx.fillStyle = white ? '#ffffff' : c.color;
@@ -91,12 +124,115 @@ export class Renderer {
 
     this.face(f, x, top, lying);
 
-    if (f.state === 'attack' && f.move) this.limb(f, x, base);
+    if (pose) this.limb(f, pose);
+    else if (!lying) this.hand(f, x + f.facing * (w / 2 - 1), top + h * 0.55);
+
     if (f.state === 'blockstun') {
       ctx.fillStyle = 'rgba(255,255,255,0.75)';
-      const bx = f.facing > 0 ? left + w + 2 : left - 5;
+      const bx = f.facing > 0 ? left + w + 4 : left - 7;
       this.round(bx, top + 2, 3, h - 4, 1);
     }
+    if (f.state === 'dash' || f.state === 'backdash') {
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      const dir = f.state === 'dash' ? -f.facing : f.facing;
+      for (let i = 0; i < 3; i++) this.round(x + dir * (18 + i * 7), base - 4 - i * 3, 6 - i, 3, 1);
+    }
+  }
+
+  feet(f, x, base, pose) {
+    const ctx = this.ctx;
+    const walking = f.state === 'walkF' || f.state === 'walkB' || f.state === 'dash';
+    const step = walking ? Math.sin(f.stateFrame / 3) * 2 : 0;
+    const air = f.y > 0;
+    ctx.fillStyle = f.char.dark;
+    // 뒷발
+    this.round(x - f.facing * 7 - 5 + step, base - (air ? 4 : 5) - Math.max(0, -step), 10, 5, 2);
+    // 앞발 (킥 중이면 다리가 뻗어 나가므로 안 그림)
+    if (!(pose && pose.kind === 'kick')) this.round(x + f.facing * 5 - 5 - step, base - (air ? 4 : 5) - Math.max(0, step), 10, 5, 2);
+  }
+
+  hand(f, hx, hy) {
+    const ctx = this.ctx;
+    ctx.fillStyle = GLOVE;
+    ctx.strokeStyle = f.char.dark;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(hx, hy, 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+
+  // 팔/다리가 어디서 나와서 어디까지 뻗는지 계산
+  limbPose(f, x, base, top, h) {
+    const m = f.move, mf = f.moveFrame;
+    let ref = m.hits.find((hh) => mf < hh.end) || m.hits[m.hits.length - 1];
+    let start, end, hb;
+    if (ref) { start = ref.start; end = ref.end; hb = ref.hitbox; }
+    else if (m.projectile) { start = m.projectile.frame - 2; end = m.projectile.frame + 6; hb = { x: 10, y: m.projectile.y, w: 14, h: m.projectile.h }; }
+    else return null;
+    const first = m.hits[0]?.start ?? start;
+    let k;
+    if (mf < start) k = mf < first ? 0.2 + 0.15 * (mf / Math.max(1, first)) : 0.45;
+    else if (mf < end) k = 1;
+    else k = 0.25 + 0.55 * Math.max(0, 1 - (mf - end) / Math.max(1, m.total - end));
+
+    const kind = m.limb === 'kick' ? 'kick' : m.limb === 'claw' ? 'claw' : 'punch';
+    const ox = x + f.facing * (kind === 'kick' ? 4 : 6);
+    const oy = kind === 'kick' ? base - Math.min(16, h * 0.3) : top + h * 0.4;
+    const tx = x + f.facing * (hb.x + hb.w), ty = base - (hb.y + hb.h / 2);
+    return { kind, k, ox, oy, px: ox + (tx - ox) * k, py: oy + (ty - oy) * k, active: k === 1 };
+  }
+
+  limb(f, p) {
+    const ctx = this.ctx;
+    const c = f.char;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = c.dark; ctx.lineWidth = p.kind === 'kick' ? 8 : 7;
+    ctx.beginPath(); ctx.moveTo(p.ox, p.oy); ctx.lineTo(p.px, p.py); ctx.stroke();
+    ctx.strokeStyle = c.color; ctx.lineWidth = p.kind === 'kick' ? 5.5 : 4.5;
+    ctx.beginPath(); ctx.moveTo(p.ox, p.oy); ctx.lineTo(p.px, p.py); ctx.stroke();
+    ctx.lineCap = 'butt';
+
+    if (p.kind === 'kick') { // 신발
+      ctx.save();
+      ctx.translate(p.px, p.py);
+      ctx.rotate(Math.atan2(p.py - p.oy, p.px - p.ox));
+      ctx.fillStyle = c.dark; this.round(-4, -4, 12, 8, 3);
+      ctx.fillStyle = GLOVE; ctx.fillRect(6, -3, 2, 6);
+      ctx.restore();
+    } else { // 장갑 주먹
+      ctx.fillStyle = GLOVE;
+      ctx.strokeStyle = c.dark;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(p.px, p.py, p.active ? 5.5 : 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (p.kind === 'claw' && p.active) { // 발톱 자국
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 1.5;
+        for (let i = -1; i <= 1; i++) {
+          ctx.beginPath();
+          ctx.moveTo(p.px + f.facing * 5, p.py - 7 + i * 5);
+          ctx.lineTo(p.px + f.facing * 14, p.py + 1 + i * 5);
+          ctx.stroke();
+        }
+      }
+    }
+    if (p.active && p.kind !== 'claw') { // 빠르게 휘두르는 느낌
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(p.px - f.facing * 10, p.py - 6); ctx.lineTo(p.px - f.facing * 18, p.py - 6);
+      ctx.moveTo(p.px - f.facing * 10, p.py + 6); ctx.lineTo(p.px - f.facing * 18, p.py + 6); ctx.stroke();
+    }
+  }
+
+  rollBall(f, x, base, white) {
+    const ctx = this.ctx;
+    const r = 12, cy = base - r;
+    const a = f.moveFrame * 0.5 * f.facing;
+    ctx.fillStyle = white ? '#fff' : f.char.color;
+    ctx.beginPath(); ctx.arc(x, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = f.char.dark; ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.arc(x, cy, r - 3, a + i * 2.1, a + i * 2.1 + 0.9); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    for (let i = 1; i <= 3; i++) this.round(x - f.facing * (r + i * 6), base - 3 - i * 2, 5, 2, 1);
   }
 
   ears(f, x, top, white) {
@@ -118,10 +254,10 @@ export class Renderer {
   face(f, x, top, lying) {
     const ctx = this.ctx;
     const hurt = ['hitstun', 'airhit', 'ko', 'down'].includes(f.state);
-    const squint = f.state === 'blockstun' || (f.state === 'attack' && f.move && f.moveFrame >= f.move.startup);
+    const squint = f.state === 'blockstun' || (f.state === 'attack' && !!f.activeHit());
     const cx = lying ? x - f.facing * 18 : x + f.facing * 4;
     const ey = top + (lying ? 4 : 12);
-    ctx.fillStyle = '#3a2a3a';
+    ctx.fillStyle = INK;
     for (const ex of [cx - 5, cx + 3]) {
       if (hurt) { // X 눈
         ctx.fillRect(ex, ey, 1, 1); ctx.fillRect(ex + 2, ey, 1, 1); ctx.fillRect(ex + 1, ey + 1, 1, 1);
@@ -130,7 +266,7 @@ export class Renderer {
         ctx.fillRect(ex, ey + 1, 3, 1);
       } else {
         ctx.fillRect(ex, ey, 2, 4);
-        ctx.fillStyle = '#fff'; ctx.fillRect(ex, ey, 1, 1); ctx.fillStyle = '#3a2a3a';
+        ctx.fillStyle = '#fff'; ctx.fillRect(ex, ey, 1, 1); ctx.fillStyle = INK;
       }
     }
     ctx.fillStyle = 'rgba(255,90,130,0.55)';
@@ -138,23 +274,33 @@ export class Renderer {
     ctx.fillRect(cx + 5, ey + 5, 3, 2);
   }
 
-  limb(f, x, base) {
+  projectile(p) {
     const ctx = this.ctx;
-    const m = f.move, mf = f.moveFrame, hb = m.hitbox;
-    let k;
-    if (mf < m.startup) k = 0.3;
-    else if (mf < m.startup + m.active) k = 1;
-    else k = 0.25 + 0.5 * (1 - (mf - m.startup - m.active) / m.recovery);
-    const lw = Math.max(5, hb.w * k), lh = Math.max(5, hb.h * (k < 1 ? 0.75 : 1));
-    const lx = f.facing > 0 ? x + hb.x : x - hb.x - lw;
-    const ly = base - hb.y - hb.h / 2 - lh / 2;
-    ctx.fillStyle = f.char.dark;
-    this.round(lx, ly, lw, lh, 3);
-    if (k === 1) {
-      const tip = f.facing > 0 ? lx + lw - 6 : lx;
-      ctx.fillStyle = '#fff6fb';
-      this.round(tip, ly + 1, 6, lh - 2, 2);
+    const d = Math.sign(p.vx) || 1;
+    const len = p.w, rad = p.h / 2;
+    ctx.save();
+    ctx.translate(p.x, G - p.y - p.h / 2);
+    ctx.scale(d, 1);
+    ctx.rotate(Math.sin(p.t / 3) * 0.08);
+    if (p.data.big) {
+      ctx.fillStyle = 'rgba(255,228,92,0.35)';
+      ctx.beginPath(); ctx.arc(0, 0, len * 0.7 + Math.sin(p.t / 2) * 2, 0, Math.PI * 2); ctx.fill();
     }
+    ctx.fillStyle = '#ff9a3c';
+    ctx.beginPath(); ctx.moveTo(len / 2, 0); ctx.lineTo(-len / 2, -rad); ctx.lineTo(-len / 2, rad); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#e0772a'; ctx.lineWidth = p.data.big ? 2 : 1;
+    for (let i = 1; i <= 2; i++) {
+      const sx = -len / 2 + (len * i) / 3.2, hh = rad * (1 - (i / 3.2)) * 0.9;
+      ctx.beginPath(); ctx.moveTo(sx, -hh); ctx.lineTo(sx + 2, 0); ctx.stroke();
+    }
+    ctx.fillStyle = '#5cc26a';
+    const lw = p.data.big ? 3 : 1.5;
+    for (const a of [-0.6, 0, 0.6]) {
+      ctx.save(); ctx.translate(-len / 2, 0); ctx.rotate(Math.PI + a + Math.sin(p.t / 2) * 0.15);
+      ctx.beginPath(); ctx.moveTo(0, -lw); ctx.lineTo(rad * 1.3 + 3, 0); ctx.lineTo(0, lw); ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   effect(e) {
@@ -190,18 +336,22 @@ export class Renderer {
     ctx.strokeStyle = f.invuln ? 'rgba(160,160,160,0.9)' : 'rgba(0,200,90,0.95)';
     ctx.lineWidth = 1;
     ctx.strokeRect(r.x + 0.5, G - r.y - r.h + 0.5, r.w, r.h);
-    if (f.isActive()) {
-      const hr = f.hitRect();
-      ctx.fillStyle = 'rgba(255,40,60,0.45)';
-      ctx.fillRect(hr.x, G - hr.y - hr.h, hr.w, hr.h);
-      ctx.strokeStyle = 'rgba(255,0,40,1)';
-      ctx.strokeRect(hr.x + 0.5, G - hr.y - hr.h + 0.5, hr.w, hr.h);
-    }
+    const act = f.activeHit();
+    if (act) this.projBox(f.hitRect(act.hit.hitbox));
     ctx.fillStyle = '#000';
     ctx.fillRect(Math.round(f.x) - 1, G - Math.round(f.y), 3, 1);
     ctx.font = `bold 7px ${FONT}`;
     ctx.textAlign = 'center';
-    ctx.fillText(f.state + (f.move ? ` ${f.moveKey} ${f.moveFrame}` : ''), f.x, G - f.y - 66);
+    ctx.fillText(f.state + (f.move ? ` ${f.moveKey} ${f.moveFrame}` : ''), f.x, G - f.y - 70);
+  }
+
+  projBox(hr) {
+    const ctx = this.ctx;
+    ctx.fillStyle = 'rgba(255,40,60,0.45)';
+    ctx.fillRect(hr.x, G - hr.y - hr.h, hr.w, hr.h);
+    ctx.strokeStyle = 'rgba(255,0,40,1)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(hr.x + 0.5, G - hr.y - hr.h + 0.5, hr.w, hr.h);
   }
 
   // ---------- UI ----------
@@ -234,6 +384,7 @@ export class Renderer {
           this.heart(hx, y + bh + 7, 4);
         }
       }
+      this.meter(game, f, i);
     });
 
     ctx.fillStyle = '#4a3346';
@@ -244,29 +395,66 @@ export class Renderer {
     ctx.fillText(game.mode === 'training' ? '∞' : String(Math.max(0, game.timer)), W / 2, 22);
 
     const ct = game.comboText;
-    if (ct && game.frame - ct.frame < 70) {
+    if (ct && game.frame - ct.frame < 80) {
       const left = ct.player === 0;
-      ctx.font = `bold 16px ${FONT}`;
+      const tx = left ? 16 : W - 16;
       ctx.textAlign = left ? 'left' : 'right';
-      this.outlined(`${ct.n} HIT!`, left ? 16 : W - 16, 70, '#ff4f86');
+      ctx.font = `900 18px ${FONT}`;
+      this.outlined(`${ct.n} HIT!`, tx, 70, '#ff4f86');
+      ctx.font = `bold 9px ${FONT}`;
+      this.outlined(`${ct.dmg} 대미지`, tx, 82, '#6a4a60');
     }
 
     ctx.font = `8px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(90,60,80,0.8)';
     if (game.mode === 'training') {
-      ctx.textAlign = 'left';
       ctx.font = `bold 9px ${FONT}`;
       const how = game.touch ? '화면 탭으로 변경' : '숫자 1~5로 변경, 0 위치 초기화';
-      this.outlined(`허수아비: ${DUMMY_MODES[game.dummyMode]}  (${how})`, 14, H - 12, '#6a4a60');
+      this.outlined(`허수아비: ${DUMMY_MODES[game.dummyMode]}  (${how})`, W / 2, H - 26, '#6a4a60');
       if (game.adv) {
         const v = game.adv.v;
-        ctx.textAlign = 'right';
-        this.outlined(`프레임 유불리 ${v > 0 ? '+' : ''}${v}`, W - 14, H - 12, v >= 0 ? '#2f9c5a' : '#d0445e');
+        this.outlined(`프레임 유불리 ${v > 0 ? '+' : ''}${v}`, W / 2, H - 38, v >= 0 ? '#2f9c5a' : '#d0445e');
       }
     } else if (!game.touch) {
       ctx.fillText('H: 판정 박스 보기   Esc: 일시정지', W / 2, H - 8);
     }
+  }
+
+  meter(game, f, i) {
+    const ctx = this.ctx;
+    const mw = 110, mh = 6, my = H - 14;
+    const mx = i === 0 ? 14 : W - 14 - mw;
+    const full = f.meter >= C.METER_MAX;
+    ctx.fillStyle = '#4a3346';
+    this.round(mx - 2, my - 2, mw + 4, mh + 4, 3);
+    const fw = mw * Math.min(1, f.meter / C.METER_MAX);
+    const blink = full && Math.floor(game.frame / 6) % 2;
+    ctx.fillStyle = full ? (blink ? '#ffffff' : '#ff4f86') : '#8fd3ff';
+    ctx.fillRect(i === 0 ? mx : mx + mw - fw, my, fw, mh);
+    ctx.font = `900 9px ${FONT}`;
+    ctx.textAlign = i === 0 ? 'left' : 'right';
+    this.outlined(full ? 'MAX!' : 'SP', i === 0 ? mx : mx + mw, my - 4, full ? '#ff4f86' : '#3f8fd6');
+  }
+
+  superName(game, sf) {
+    const ctx = this.ctx;
+    const f = game.p[sf.player];
+    const age = game.frame - sf.frame;
+    const slide = Math.max(0, 1 - age / 8);
+    const x = W / 2 + (sf.player === 0 ? -1 : 1) * slide * 200;
+    ctx.save();
+    ctx.translate(x, 92);
+    ctx.font = `900 30px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 7; ctx.strokeStyle = '#ffffff';
+    ctx.strokeText(`${sf.name}!`, 0, 0);
+    ctx.fillStyle = f.char.dark;
+    ctx.fillText(`${sf.name}!`, 0, 0);
+    ctx.font = `900 10px ${FONT}`;
+    ctx.fillStyle = '#ffe45c';
+    ctx.fillText('SUPER', 0, -28);
+    ctx.restore();
   }
 
   banner(game) {
@@ -317,7 +505,7 @@ export class Renderer {
     ctx.fillStyle = '#ff6f9f';
     ctx.fillText('PROJECT HEART', W / 2, 78 + bob);
     ctx.font = `bold 10px ${FONT}`;
-    this.outlined('(가제)  1단계 시제품 · 네모 버전', W / 2, 98, '#6a4a60');
+    this.outlined('(가제)  2단계 시제품 · 필살기 버전', W / 2, 98, '#6a4a60');
     ctx.fillStyle = '#ff4f86';
     this.heart(W / 2 - 128, 64 + bob, 6); this.heart(W / 2 + 128, 64 + bob, 6);
 

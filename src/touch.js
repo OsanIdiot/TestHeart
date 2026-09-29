@@ -37,12 +37,12 @@ export function setupTouch() {
   stick.addEventListener('pointercancel', (e) => { if (e.pointerId === stickId) releaseStick(); });
 
   for (const btn of document.querySelectorAll('[data-btn]')) {
-    const key = btn.dataset.btn;
+    const keys = btn.dataset.btn.split(' '); // 잡기 버튼은 "LP LK" 두 개를 동시에
     const down = (e) => {
-      setTouch(key, true); btn.classList.add('on'); capture(btn, e);
+      keys.forEach((k) => setTouch(k, true)); btn.classList.add('on'); capture(btn, e);
       navigator.vibrate?.(8);
     };
-    const up = () => { btn.classList.remove('on'); setTouch(key, false); };
+    const up = () => { btn.classList.remove('on'); keys.forEach((k) => setTouch(k, false)); };
     btn.addEventListener('pointerdown', down);
     btn.addEventListener('pointerup', up);
     btn.addEventListener('pointercancel', up);

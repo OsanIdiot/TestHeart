@@ -2,6 +2,7 @@ import { Game } from './game.js';
 import { Renderer } from './render.js';
 import { readFrame, virtualTap } from './input.js';
 import { isTouch, setupTouch } from './touch.js';
+import { renderMoveList } from './movelist.js';
 
 const STEP = 1000 / 60; // 격투게임은 초당 60프레임 고정
 const game = new Game();
@@ -25,10 +26,18 @@ canvas.addEventListener('pointerdown', (e) => {
   else if (game.mode === 'training') game.cycleDummy();
 });
 
+renderMoveList(document.getElementById('moves-desk'), false);
+renderMoveList(document.getElementById('moves-body'), true);
+const movesPanel = document.getElementById('moves');
+
 const tools = {
   pause: () => { if (game.mode !== 'title' && game.phase !== 'matchEnd') virtualTap('Escape'); },
   boxes: () => virtualTap('KeyH'),
   home: () => { game.paused = false; game.mode = 'title'; },
+  moves: () => {
+    movesPanel.hidden = !movesPanel.hidden;
+    if (!movesPanel.hidden && game.mode !== 'title' && game.phase !== 'matchEnd') game.paused = true;
+  },
 };
 for (const el of document.querySelectorAll('[data-tool]')) {
   el.addEventListener('click', () => tools[el.dataset.tool]());

@@ -50,6 +50,13 @@ export function sfx(name) {
     case 'ko': tone('square', 500, 40, 0.8, 0.2); burst(600, 0.5, 0.4); break;
     case 'round': tone('square', 660, 660, 0.12, 0.1); tone('square', 880, 880, 0.2, 0.1, 0.13); break;
     case 'fight': tone('sawtooth', 440, 880, 0.25, 0.12); break;
+    case 'special': tone('triangle', 500, 1000, 0.12, 0.1); break;
+    case 'throw': tone('square', 200, 80, 0.2, 0.15); burst(500, 0.2, 0.35); break;
+    case 'super':
+      tone('sawtooth', 220, 880, 0.35, 0.12);
+      tone('square', 880, 880, 0.12, 0.08, 0.3);
+      tone('square', 1320, 1320, 0.3, 0.08, 0.42);
+      break;
     case 'select': tone('square', 880, 1200, 0.07, 0.08); break;
   }
 }

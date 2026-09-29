@@ -19,6 +19,7 @@ export class Game {
     this.p = [new Fighter(0, CHARACTERS[0]), new Fighter(1, CHARACTERS[1])];
     this.cpu = new Cpu();
     this.effects = [];
+    this.projectiles = [];
     this.debug = false;
     this.frame = 0;
     this.mode = 'title';
@@ -26,6 +27,7 @@ export class Game {
     this.dummyMode = 0;
     this.shake = 0;
     this.hitstop = 0;
+    this.superFreeze = null;
   }
 
   startMatch(mode) {
@@ -39,15 +41,22 @@ export class Game {
   nextRound() {
     this.round++;
     const mid = C.STAGE_W / 2;
+    const meters = this.p.map((f) => f.meter);
     this.p[0].reset(mid - C.START_GAP / 2, 1);
     this.p[1].reset(mid + C.START_GAP / 2, -1);
+    // 게이지는 다음 라운드로 이어짐
+    if (this.round > 1) this.p.forEach((f, i) => { f.meter = meters[i]; });
     this.cpu.reset();
     this.timer = C.ROUND_TIME; this.timerFrames = 0;
-    this.hitstop = 0; this.shake = 0;
-    this.effects = []; this.comboText = null; this.adv = null; this.advTrack = null;
+    this.hitstop = 0; this.shake = 0; this.superFreeze = null;
+    this.effects = []; this.projectiles = [];
+    this.comboText = null; this.adv = null; this.advTrack = null;
     this.idleFrames = 0;
     this.p.forEach((f) => { f.noKo = this.mode === 'training'; });
-    if (this.mode === 'training') { this.setPhase('fight'); this.banner = null; return; }
+    if (this.mode === 'training') {
+      this.p.forEach((f) => { f.meter = C.METER_MAX; });
+      this.setPhase('fight'); this.banner = null; return;
+    }
     this.setPhase('intro');
     const final = this.p.every((f) => f.wins === C.ROUNDS_TO_WIN - 1);
     this.setBanner(final ? 'FINAL ROUND' : `ROUND ${this.round}`);
@@ -79,9 +88,15 @@ export class Game {
 
     if (this.mode === 'training') this.trainingKeys(taps);
 
-    this.phaseFrame++;
     let inputs = [EMPTY_INPUT, EMPTY_INPUT];
     if (this.phase === 'fight') inputs = [players[0], this.p2Input(players[1])];
+    if (this.superFreeze) {
+      // 초필살기 연출 중에는 시간이 멈춤 (입력은 기억)
+      this.p.forEach((f, i) => f.handleBuffer(inputs[i], false));
+      if (--this.superFreeze.t <= 0) this.superFreeze = null;
+      return;
+    }
+    this.phaseFrame++;
     this.simulate(inputs);
 
     if (this.phase === 'intro') {
@@ -126,16 +141,17 @@ export class Game {
   p2Input(human) {
     const [a, b] = this.p;
     if (this.mode === 'versus') return human;
-    if (this.mode === 'cpu') return this.cpu.think(b, a);
+    if (this.mode === 'cpu') return this.cpu.think(b, a, this);
     const away = Math.sign(b.x - a.x) || 1;
     switch (DUMMY_MODES[this.dummyMode]) {
       case '앉아 있기': return { ...EMPTY_INPUT, down: true };
       case '전부 가드': {
-        const stand = a.y > 0 || a.move?.guard === 'high';
+        const guard = a.activeHit()?.hit.guard ?? a.move?.hits[0]?.guard;
+        const stand = a.y > 0 || guard === 'high';
         return { ...EMPTY_INPUT, left: away < 0, right: away > 0, down: !stand };
       }
       case '계속 점프': return { ...EMPTY_INPUT, up: true };
-      case 'CPU': return this.cpu.think(b, a);
+      case 'CPU': return this.cpu.think(b, a, this);
       default: return EMPTY_INPUT;
     }
   }
@@ -155,43 +171,104 @@ export class Game {
 
     const hits = [];
     for (const [att, def] of [[a, b], [b, a]]) {
-      if (att.isActive() && !def.invuln) {
-        const hr = att.hitRect(), dr = def.hurtRect();
-        if (overlap(hr, dr)) hits.push({ att, def, m: att.move, hr, dr });
-      }
+      const act = att.activeHit();
+      if (!act || def.invuln) continue;
+      if (act.hit.throw && !def.canBeThrown()) continue;
+      const hr = att.hitRect(act.hit.hitbox), dr = def.hurtRect();
+      if (overlap(hr, dr)) hits.push({ att, def, ...act, hr, dr });
     }
-    for (const h of hits) this.applyHit(h);
+    for (const h of hits) {
+      h.att.hitDone.add(h.index);
+      h.att.contact = true;
+      this.applyHit({ owner: h.att, def: h.def, hit: h.hit, attX: h.att.x, attFacing: h.att.facing, hr: h.hr, dr: h.dr });
+    }
+
+    this.updateProjectiles();
 
     for (const [f, o] of [[a, b], [b, a]]) {
       if (f.grounded && (f.actionable || f.state === 'landing') && f.x !== o.x) f.facing = o.x > f.x ? 1 : -1;
-      for (const e of f.events) if (e === 'swingL' || e === 'swingH' || e === 'jump') sfx(e);
+      for (const e of f.events) {
+        if (typeof e === 'string') { if (e !== 'land') sfx(e); }
+        else if (e.type === 'projectile') this.spawnProjectile(f, e.data);
+        else if (e.type === 'super') this.startSuper(f, e.name);
+      }
       f.events.length = 0;
     }
     this.trackAdvantage();
   }
 
-  applyHit({ att, def, m, hr, dr }) {
-    const blocked = def.canBlock(att, m);
-    att.moveHit = true;
-    att.contact = true;
-    const r = def.takeHit(att, m, blocked);
+  startSuper(f, name) {
+    this.superFreeze = { player: f.index, t: C.SUPER_FREEZE, name, frame: this.frame };
+    sfx('super');
+  }
+
+  spawnProjectile(owner, d) {
+    this.projectiles.push({
+      owner, data: d,
+      x: owner.x + owner.facing * (20 + d.w / 2), y: owner.y + d.y,
+      vx: d.speed * owner.facing, w: d.w, h: d.h,
+      hitsLeft: d.hits, life: d.life, cooldown: 0, t: 0,
+    });
+  }
+
+  updateProjectiles() {
+    const list = this.projectiles;
+    for (const p of list) {
+      // 여러 번 때리는 당근은 맞히는 동안 그 자리에 멈춤
+      if (p.cooldown > 0) p.cooldown--;
+      else p.x += p.vx;
+      p.t++; p.life--;
+    }
+    // 서로 다른 사람의 당근끼리 부딪히면 상쇄
+    for (const p of list) for (const q of list) {
+      if (p === q || p.owner === q.owner || p.hitsLeft <= 0 || q.hitsLeft <= 0) continue;
+      if (overlap(this.projRect(p), this.projRect(q))) {
+        p.hitsLeft--; q.hitsLeft--;
+        this.effects.push({ type: 'block', x: (p.x + q.x) / 2, y: p.y + p.h / 2, t: 0 });
+        sfx('block');
+      }
+    }
+    for (const p of list) {
+      if (p.hitsLeft <= 0 || p.cooldown > 0) continue;
+      const def = this.p[1 - p.owner.index];
+      if (def.invuln) continue;
+      const pr = this.projRect(p), dr = def.hurtRect();
+      if (!overlap(pr, dr)) continue;
+      p.hitsLeft--;
+      p.cooldown = p.data.interval ?? 0;
+      const last = p.hitsLeft <= 0;
+      const hit = { ...p.data, launch: !!p.data.lastLaunch && last };
+      this.applyHit({ owner: p.owner, def, hit, attX: p.x - p.vx * 4, attFacing: Math.sign(p.vx), hr: pr, dr, last });
+    }
+    this.projectiles = list.filter((p) => p.hitsLeft > 0 && p.life > 0 && p.x > -40 && p.x < C.STAGE_W + 40);
+    for (const f of this.p) f.projectileAlive = this.projectiles.some((p) => p.owner === f);
+  }
+
+  projRect(p) { return { x: p.x - p.w / 2, y: p.y, w: p.w, h: p.h }; }
+
+  applyHit({ owner, def, hit, attX, attFacing, hr, dr, last = true }) {
+    const blocked = def.canBlock(attX, hit);
+    const r = def.takeHit(attX, attFacing, hit, blocked, last);
+    if (!owner.move?.super) owner.meter = Math.min(C.METER_MAX, owner.meter + hit.damage * (blocked ? 0.35 : 0.7));
 
     // 상대가 벽에 붙어 있으면 대신 공격자가 밀려남
     const atWall = def.x <= C.WALL_MARGIN + 1 || def.x >= C.STAGE_W - C.WALL_MARGIN - 1;
-    if (r !== 'ko' && def.grounded && atWall) att.pushVx = -(Math.sign(def.x - att.x) || att.facing) * m.push * 0.9;
+    if (r !== 'ko' && def.grounded && atWall && Math.abs(owner.x - attX) < 1) {
+      owner.pushVx = -(Math.sign(def.x - owner.x) || owner.facing) * hit.push * 0.9;
+    }
 
-    const heavy = m.hitstop >= 9;
-    this.hitstop = Math.max(this.hitstop, r === 'block' ? Math.round(m.hitstop * 0.7) : r === 'ko' ? 45 : m.hitstop);
-    if (r !== 'block' && m.shake) this.shake = Math.max(this.shake, m.shake * 2);
+    const heavy = hit.hitstop >= 9;
+    this.hitstop = Math.max(this.hitstop, r === 'block' ? Math.round(hit.hitstop * 0.7) : r === 'ko' ? 45 : hit.hitstop);
+    if (r !== 'block' && hit.shake) this.shake = Math.max(this.shake, hit.shake * 2);
     if (r === 'ko') this.shake = 10;
 
     const x0 = Math.max(hr.x, dr.x), x1 = Math.min(hr.x + hr.w, dr.x + dr.w);
     const y0 = Math.max(hr.y, dr.y), y1 = Math.min(hr.y + hr.h, dr.y + dr.h);
-    this.effects.push({ type: r === 'block' ? 'block' : 'hit', x: (x0 + x1) / 2, y: (y0 + y1) / 2, t: 0, big: heavy, dir: att.facing });
+    this.effects.push({ type: r === 'block' ? 'block' : 'hit', x: (x0 + x1) / 2, y: (y0 + y1) / 2, t: 0, big: heavy, dir: attFacing });
 
-    sfx(r === 'ko' ? 'ko' : r === 'block' ? 'block' : heavy ? 'hitH' : 'hitL');
-    if (r !== 'block' && def.combo >= 2) this.comboText = { player: att.index, n: def.combo, frame: this.frame };
-    this.advTrack = { att, def, f: 0, ta: null, td: null };
+    sfx(r === 'ko' ? 'ko' : r === 'block' ? 'block' : hit.throw ? 'throw' : heavy ? 'hitH' : 'hitL');
+    if (r !== 'block' && def.combo >= 2) this.comboText = { player: owner.index, n: def.combo, dmg: def.comboDamage, frame: this.frame };
+    this.advTrack = { att: owner, def, f: 0, ta: null, td: null };
   }
 
   // 트레이닝용 프레임 유불리 계산 (+면 공격한 쪽이 먼저 움직일 수 있음)
@@ -225,7 +302,9 @@ export class Game {
     if (this.mode === 'training') {
       const calm = a.actionable && (b.actionable || b.state === 'air');
       this.idleFrames = calm ? this.idleFrames + 1 : 0;
-      if (this.idleFrames > 40) for (const f of this.p) { if (f.hp < C.MAX_HP) { f.hp = C.MAX_HP; f.redHp = C.MAX_HP; } }
+      if (this.idleFrames > 40) {
+        for (const f of this.p) { f.hp = C.MAX_HP; f.redHp = C.MAX_HP; f.meter = C.METER_MAX; }
+      }
       return;
     }
     if (a.hp <= 0 || b.hp <= 0) {
